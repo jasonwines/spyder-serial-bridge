@@ -20,6 +20,13 @@ What the installer does:
 - copies the app to `/opt/spyder-bridge`
 - creates `/etc/spyder-bridge/config.yaml` from [config.example.yaml](config.example.yaml) if it doesn't exist
 - installs and starts two systemd services: `spyder-bridge` (the bridge) and `spyder-bridge-web` (the config page on port 80)
+- adds the static fallback address `192.168.254.254/24` on `eth0`, alongside DHCP
+
+### Fallback IP
+
+Every unit also answers on **192.168.254.254**, whatever DHCP hands out. To reach a unit with no network or DHCP server, cable a laptop straight to it, set the laptop to a static `192.168.254.1`, subnet mask `255.255.255.0`, and open `http://192.168.254.254/`.
+
+Use a different address with `sudo SPYDER_FALLBACK_IP=10.254.254.254/24 ./install.sh`, or skip it with `sudo SPYDER_FALLBACK_IP= ./install.sh`. Avoid a subnet the site network already uses.
 
 Logs: `journalctl -u spyder-bridge -f` (or `-u spyder-bridge-web`).
 

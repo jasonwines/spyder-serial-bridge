@@ -5,6 +5,11 @@
 #
 # Safe to re-run: this is also the update path (git pull && sudo ./install.sh).
 # An existing /etc/spyder-bridge/config.yaml is never overwritten.
+#
+# Also adds a static fallback address (default 192.168.254.254/24) on eth0
+# alongside DHCP, so a tech can always reach the config page with a laptop
+# cabled straight to the unit. Override with SPYDER_FALLBACK_IP=addr/prefix,
+# or set it empty to skip: sudo SPYDER_FALLBACK_IP= ./install.sh
 set -euo pipefail
 
 APP_DIR=/opt/spyder-bridge
@@ -12,10 +17,62 @@ CONF_DIR=/etc/spyder-bridge
 CONF_FILE=$CONF_DIR/config.yaml
 SERVICE_USER=spyder-bridge
 SERVICES=(spyder-bridge.service spyder-bridge-web.service)
+FALLBACK_IP=${SPYDER_FALLBACK_IP-192.168.254.254/24}
+ETH_DEV=eth0
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+
+# Name of the NetworkManager profile for $ETH_DEV, creating one if needed.
+eth_connection() {
+    local con name type
+    con=$(nmcli -g GENERAL.CONNECTION device show "$ETH_DEV" 2>/dev/null || true)
+    if [[ -n $con ]]; then
+        echo "$con"
+        return
+    fi
+    # No cable plugged in right now: use an existing wired profile if any.
+    while IFS=: read -r name type; do
+        if [[ $type == 802-3-ethernet ]]; then
+            echo "$name"
+            return
+        fi
+    done < <(nmcli -g NAME,TYPE connection show)
+    nmcli connection add type ethernet ifname "$ETH_DEV" \
+        con-name "Wired connection 1" ipv4.method auto >/dev/null
+    echo "Wired connection 1"
+}
+
+configure_fallback_ip() {
+    if [[ -z $FALLBACK_IP ]]; then
+        echo "skipped (SPYDER_FALLBACK_IP is empty)"
+        return
+    fi
+    if ! command -v nmcli >/dev/null || ! systemctl is-active -q NetworkManager; then
+        warn "NetworkManager not running; fallback IP not configured"
+        return
+    fi
+    local con
+    con=$(eth_connection)
+    if nmcli -g ipv4.addresses connection show "$con" | tr ',' '\n' \
+            | sed 's/^ *//' | grep -qxF "$FALLBACK_IP"; then
+        echo "$FALLBACK_IP already on '$con'"
+    else
+        nmcli connection modify "$con" +ipv4.addresses "$FALLBACK_IP"
+        echo "added $FALLBACK_IP to '$con'"
+    fi
+    # Keep DHCP (and the connection) up with no DHCP server present, which
+    # is exactly when the fallback address is needed. By default NM gives
+    # up after 45s and takes the static address down with it.
+    nmcli connection modify "$con" ipv4.method auto ipv4.dhcp-timeout infinity \
+        connection.autoconnect yes connection.autoconnect-retries 0
+    # Apply in place without dropping an SSH session running over eth0.
+    if ! nmcli device reapply "$ETH_DEV" >/dev/null 2>&1; then
+        echo "will take effect when $ETH_DEV next connects"
+    fi
+}
 
 [[ $EUID -eq 0 ]] || die "run as root: sudo $0"
 if ! command -v apt-get >/dev/null || ! command -v systemctl >/dev/null; then
@@ -73,6 +130,9 @@ else
     echo "created $CONF_FILE from config.example.yaml"
 fi
 
+log "Configuring fallback IP on $ETH_DEV"
+configure_fallback_ip
+
 log "Installing systemd services"
 for svc in "${SERVICES[@]}"; do
     install -o root -g root -m 644 "$REPO_DIR/systemd/$svc" "/etc/systemd/system/$svc"
@@ -96,6 +156,9 @@ EOF
 for a in $addrs; do
     [[ $a == *:* ]] || echo "              http://$a/"
 done
+if [[ -n $FALLBACK_IP ]]; then
+    echo "Fallback:     http://${FALLBACK_IP%/*}/  (laptop cabled directly, set to e.g. ${FALLBACK_IP%.*}.1/${FALLBACK_IP#*/})"
+fi
 cat <<EOF
 Logs:         journalctl -u spyder-bridge -f
 EOF
