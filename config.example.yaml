@@ -21,3 +21,7 @@ spyder_port: 11116
 # error back over serial. 50-10000. Raise if slow commands (image loads)
 # time out.
 response_timeout_ms: 500
+
+# Outgoing UDP omits the serial CR by default. If the Spyder silently
+# ignores commands, set this to true -- it's the first thing to test.
+udp_append_cr: false

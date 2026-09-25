@@ -72,6 +72,7 @@ def test_ipv6_accepted():
         ("response_timeout_ms: 10\n", "response_timeout_ms"),
         ("response_timeout_ms: 0.5\n", "response_timeout_ms"),
         ("serial_port: ''\n", "serial_port"),
+        ("udp_append_cr: 1\n", "udp_append_cr"),
         ("baud: 9600\n", "unknown config key"),
         ("- 9600\n", "YAML mapping"),
         ("baud_rate: [\n", "not valid YAML"),

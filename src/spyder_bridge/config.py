@@ -51,6 +51,9 @@ class Config:
     spyder_ip: str = "192.168.0.100"
     spyder_port: int = 11116
     response_timeout_ms: int = 500
+    # Outgoing UDP omits the serial CR by design; flip this if the Spyder
+    # silently rejects commands (first thing to try on real hardware).
+    udp_append_cr: bool = False
 
     def __post_init__(self) -> None:
         _require_str(self, "serial_port")
@@ -84,6 +87,11 @@ class Config:
             raise ConfigError(
                 f"response_timeout_ms must be {MIN_TIMEOUT_MS}-{MAX_TIMEOUT_MS}, "
                 f"got {self.response_timeout_ms}"
+            )
+
+        if not isinstance(self.udp_append_cr, bool):
+            raise ConfigError(
+                f"udp_append_cr must be true or false, got {self.udp_append_cr!r}"
             )
 
     @property
