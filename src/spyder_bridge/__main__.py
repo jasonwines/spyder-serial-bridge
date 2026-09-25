@@ -20,6 +20,7 @@ import serial
 
 from .bridge import Bridge
 from .config import Config, ConfigError, load_config, resolve_config_path
+from .logsetup import setup_logging
 from .serial_link import PtyLink, PySerialLink
 from .udp_client import SpyderUdpClient
 
@@ -128,10 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     args = parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    setup_logging(args.verbose)
 
     try:
         cfg = load_config(args.config)

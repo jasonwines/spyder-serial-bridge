@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import logging
 import os
 from dataclasses import fields
 from typing import Any, Mapping
@@ -35,6 +36,7 @@ from .config import (
     resolve_config_path,
     save_config,
 )
+from .logsetup import setup_logging
 
 PARITY_LABELS = {"N": "None", "E": "Even", "O": "Odd"}
 _INT_FIELDS = {"baud_rate", "data_bits", "stop_bits", "spyder_port", "response_timeout_ms"}
@@ -143,7 +145,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default="0.0.0.0", help="address to listen on")
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args(argv)
-    create_app(args.config).run(host=args.host, port=args.port)
+    setup_logging()
+    app = create_app(args.config)
+    try:
+        # Installed on the Pi by install.sh; sturdier than Flask's dev server.
+        from waitress import serve
+    except ImportError:
+        app.run(host=args.host, port=args.port)
+    else:
+        logging.getLogger(__name__).info("serving on http://%s:%d/", args.host, args.port)
+        serve(app, host=args.host, port=args.port, threads=4)
 
 
 if __name__ == "__main__":
