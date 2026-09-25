@@ -1,0 +1,23 @@
+# Spyder Serial Bridge configuration.
+# Installed to /etc/spyder-bridge/config.yaml (override with SPYDER_BRIDGE_CONFIG).
+# Any key left out uses the default shown here. Unknown keys are rejected.
+
+# USB-RS232 adapter device. /dev/serial/by-id/... is more stable than
+# /dev/ttyUSB0 if more than one USB serial device is ever attached.
+serial_port: /dev/ttyUSB0
+
+# Must match the control system's driver. One of:
+# 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200
+baud_rate: 9600
+data_bits: 8      # 7 or 8
+parity: N         # N, E, or O
+stop_bits: 1      # 1 or 2
+
+# Spyder S address. Commands go out as UDP to spyder_ip:spyder_port.
+spyder_ip: 192.168.0.100
+spyder_port: 11116
+
+# How long to wait for the Spyder's reply before sending a result-code-5
+# error back over serial. 50-10000. Raise if slow commands (image loads)
+# time out.
+response_timeout_ms: 500
