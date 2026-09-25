@@ -18,8 +18,9 @@ log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "run as root: sudo $0"
-command -v apt-get >/dev/null && command -v systemctl >/dev/null \
-    || die "needs a Debian-based system with systemd (Raspberry Pi OS)"
+if ! command -v apt-get >/dev/null || ! command -v systemctl >/dev/null; then
+    die "needs a Debian-based system with systemd (Raspberry Pi OS)"
+fi
 [[ -f $REPO_DIR/src/spyder_bridge/__main__.py ]] \
     || die "run from a checkout of the spyder-serial-bridge repo"
 
