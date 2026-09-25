@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spyder-serial-bridge"
+version = "0.1.0"
+description = "RS232-to-IP bridge for Christie Spyder S control systems"
+readme = "README.md"
+license = { text = "MIT" }
+# Raspberry Pi OS Bookworm ships 3.11.
+requires-python = ">=3.11"
+dependencies = [
+    "PyYAML>=6.0",
+    "pyserial>=3.5",
+    "Flask>=2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+spyder-bridge = "spyder_bridge.__main__:main"
+spyder-bridge-web = "spyder_bridge.web:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+spyder_bridge = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

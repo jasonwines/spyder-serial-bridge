@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spyder Serial Bridge</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #5d6673;
+    --border: #d5dae1; --accent: #0b5cad; --accent-text: #fff;
+    --ok-bg: #e6f4ea; --ok-text: #1e5b2e; --err-bg: #fdecea; --err-text: #8a1c14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15181c; --panel: #1e2227; --text: #e6e9ed; --muted: #9aa3ae;
+      --border: #363c44; --accent: #5aa2ec; --accent-text: #0b1520;
+      --ok-bg: #173323; --ok-text: #9fdcb0; --err-bg: #3b1a17; --err-text: #f4b3ab;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 38rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .sub { color: var(--muted); margin: 0 0 1.25rem; font-size: .9rem; word-break: break-all; }
+  fieldset {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem 1rem .25rem; margin: 0 0 1rem;
+  }
+  legend { font-weight: 600; padding: 0 .35rem; }
+  .field { margin-bottom: .9rem; }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+  label { display: block; font-weight: 500; margin-bottom: .25rem; }
+  input[type=text], input[type=number], select {
+    width: 100%; padding: .5rem .6rem; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .invalid input, .invalid select { border-color: var(--err-text); }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: .2rem; }
+  .error { color: var(--err-text); font-size: .85rem; margin-top: .2rem; }
+  .check { display: flex; gap: .5rem; align-items: flex-start; }
+  .check input { margin-top: .3rem; }
+  .check label { font-weight: 500; margin: 0; }
+  .banner { padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+  .banner.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .banner.err { background: var(--err-bg); color: var(--err-text); }
+  button {
+    font: inherit; font-weight: 600; padding: .6rem 1.4rem; border: 0; border-radius: 6px;
+    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  }
+  @media (max-width: 30rem) { .row { grid-template-columns: 1fr; gap: 0; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Spyder Serial Bridge</h1>
+  <p class="sub">Config file: {{ config_path }}</p>
+
+  {% if saved %}
+  <div class="banner ok" role="status">Saved. The bridge applies new settings within a few seconds.</div>
+  {% endif %}
+  {% if load_error %}
+  <div class="banner err" role="alert">The config file has a problem, so defaults are shown below. Saving will replace it.<br>{{ load_error }}</div>
+  {% endif %}
+  {% if save_error %}
+  <div class="banner err" role="alert">{{ save_error }}</div>
+  {% endif %}
+  {% if errors %}
+  <div class="banner err" role="alert">Nothing was saved. Fix the highlighted fields and try again.</div>
+  {% endif %}
+
+  {% macro field_error(name) -%}
+    {% if errors[name] %}<div class="error" id="{{ name }}-error">{{ errors[name] }}</div>{% endif %}
+  {%- endmacro %}
+  {% macro aria(name) -%}
+    {% if errors[name] %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}
+  {%- endmacro %}
+
+  <form method="post">
+    <fieldset>
+      <legend>Serial (control system side)</legend>
+      <div class="field {{ 'invalid' if errors.serial_port }}">
+        <label for="serial_port">Serial port</label>
+        <input type="text" id="serial_port" name="serial_port" list="ports"
+               value="{{ values.serial_port }}" {{ aria('serial_port') }}>
+        <datalist id="ports">
+          {% for p in detected_ports %}<option value="{{ p }}">{% endfor %}
+        </datalist>
+        {% if detected_ports %}
+        <div class="hint">Detected: {{ detected_ports | join(', ') }}</div>
+        {% else %}
+        <div class="hint">No serial adapters detected right now.</div>
+        {% endif %}
+        {{ field_error('serial_port') }}
+      </div>
+      <div class="field {{ 'invalid' if errors.baud_rate }}">
+        <label for="baud_rate">Baud rate</label>
+        <select id="baud_rate" name="baud_rate" {{ aria('baud_rate') }}>
+          {% for b in baud_rates %}
+          <option value="{{ b }}" {{ 'selected' if values.baud_rate == b }}>{{ b }}</option>
+          {% endfor %}
+        </select>
+        <div class="hint">Must match the control system's driver.</div>
+        {{ field_error('baud_rate') }}
+      </div>
+      <div class="row">
+        <div class="field {{ 'invalid' if errors.data_bits }}">
+          <label for="data_bits">Data bits</label>
+          <select id="data_bits" name="data_bits" {{ aria('data_bits') }}>
+            {% for d in data_bits %}
+            <option value="{{ d }}" {{ 'selected' if values.data_bits == d }}>{{ d }}</option>
+            {% endfor %}
+          </select>
+          {{ field_error('data_bits') }}
+        </div>
+        <div class="field {{ 'invalid' if errors.parity }}">
+          <label for="parity">Parity</label>
+          <select id="parity" name="parity" {{ aria('parity') }}>
+            {% for code, label in parities.items() %}
+            <option value="{{ code }}" {{ 'selected' if values.parity == code }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {{ field_error('parity') }}
+        </div>
+        <div class="field {{ 'invalid' if errors.stop_bits }}">
+          <label for="stop_bits">Stop bits</label>
+          <select id="stop_bits" name="stop_bits" {{ aria('stop_bits') }}>
+            {% for s in stop_bits %}
+            <option value="{{ s }}" {{ 'selected' if values.stop_bits == s }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+          {{ field_error('stop_bits') }}
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Spyder S (network side)</legend>
+      <div class="field {{ 'invalid' if errors.spyder_ip }}">
+        <label for="spyder_ip">Spyder IP address</label>
+        <input type="text" id="spyder_ip" name="spyder_ip" inputmode="decimal"
+               value="{{ values.spyder_ip }}" {{ aria('spyder_ip') }}>
+        {{ field_error('spyder_ip') }}
+      </div>
+      <div class="field {{ 'invalid' if errors.spyder_port }}">
+        <label for="spyder_port">UDP port</label>
+        <input type="number" id="spyder_port" name="spyder_port" min="1" max="65535"
+               value="{{ values.spyder_port }}" {{ aria('spyder_port') }}>
+        <div class="hint">The Spyder listens on 11116.</div>
+        {{ field_error('spyder_port') }}
+      </div>
+      <div class="field {{ 'invalid' if errors.response_timeout_ms }}">
+        <label for="response_timeout_ms">Response timeout (ms)</label>
+        <input type="number" id="response_timeout_ms" name="response_timeout_ms"
+               min="{{ min_timeout }}" max="{{ max_timeout }}"
+               value="{{ values.response_timeout_ms }}" {{ aria('response_timeout_ms') }}>
+        <div class="hint">After this long with no reply, the control system gets error code 5. Raise it if slow commands, like image loads, time out.</div>
+        {{ field_error('response_timeout_ms') }}
+      </div>
+      <div class="field">
+        <div class="check">
+          <input type="checkbox" id="udp_append_cr" name="udp_append_cr"
+                 {{ 'checked' if values.udp_append_cr }}>
+          <label for="udp_append_cr">Add carriage return to commands sent to the Spyder</label>
+        </div>
+        <div class="hint">Off by default. Turn on if the Spyder ignores commands.</div>
+      </div>
+    </fieldset>
+
+    <button type="submit">Save</button>
+  </form>
+</main>
+</body>
+</html>

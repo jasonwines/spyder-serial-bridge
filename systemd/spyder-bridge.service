@@ -1,0 +1,43 @@
+[Unit]
+Description=Spyder Serial Bridge (RS232 to Spyder UDP)
+Documentation=https://github.com/jasonwines/spyder-serial-bridge
+After=network.target
+
+# Never give up: an unplugged adapter or a bad config should recover on its
+# own once fixed, with no one needing to log in.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=spyder-bridge
+Group=spyder-bridge
+SupplementaryGroups=dialout
+Environment=PYTHONPATH=/opt/spyder-bridge/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m spyder_bridge --config /etc/spyder-bridge/config.yaml
+Restart=always
+RestartSec=5
+
+# Hardening. The bridge only reads its config and talks serial + UDP, so
+# the whole filesystem is read-only to it. The serial device must stay
+# visible, so no PrivateDevices.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
