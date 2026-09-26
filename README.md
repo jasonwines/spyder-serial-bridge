@@ -1,5 +1,5 @@
 # spyder-serial-bridge
-RS232-to-IP bridge for Christie Spyder — lets existing Spyder processors using legacy serial control (Crestron, etc.) control Spyder processors over the network with no changes to existing programming.
+This RS232-to-IP bridge for Christie Spyder — lets existing Spyder processors using legacy serial control (Crestron, etc.) control Spyder processors over the network with no changes to existing programming.
 
 ## Install (Raspberry Pi OS, 64-bit)
 
