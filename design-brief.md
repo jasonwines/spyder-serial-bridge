@@ -8,10 +8,18 @@ existing serial control programming.
 
 Repo: https://github.com/jasonwines/spyder-serial-bridge (public, MIT licensed)
 
+**Status (2026-09-28):** build steps 1–6 are done and merged to `main`, plus
+a password-protected config page with network settings. The whole path —
+control-system serial → Pi → UDP → Spyder S and back — and the config page's
+network settings have been tested on real hardware. See [What's been tested](#whats-been-tested) and
+[Open items](#open-items).
+
 ## The protocol
 - **Serial side**: ASCII commands, CR-terminated (`0x0D`). Baud rate default
-  9600 8N1, but must be user-configurable (see Config below) since it has to
-  match whatever the third-party control system's driver expects.
+  9600 8N1, configurable (baud, data bits, parity, stop bits) since it has to
+  match whatever the third-party control system's driver expects. A stray LF
+  from CRLF senders and blank lines are ignored; more than 512 bytes with no
+  CR is treated as line noise (e.g. a baud mismatch) and discarded.
 - **IP side**: UDP to port **11116** on the Spyder S. Each command is sent as:
   `b"spyder\x00\x00\x00\x00" + command_bytes` — the literal ASCII string
   `spyder` followed by four `0x00` bytes, concatenated directly onto the
@@ -30,66 +38,156 @@ Repo: https://github.com/jasonwines/spyder-serial-bridge (public, MIT licensed)
   `0`, no header and no trailing data. The bridge's synthesized timeout
   reply (`5` + CR) therefore matches the real format. Query commands that
   return data haven't been checked yet.
+- Replies go back over serial with exactly one trailing CR (trailing CR, LF
+  and NUL are normalised).
 
 ## Core software architecture
-Single-flight request/response state machine (not fire-and-forget):
+Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
 
-- States: `IDLE` or `AWAITING_RESPONSE(generation_id)`
-- Serial reader accumulates bytes until CR, yielding a complete command.
-- On a complete command while `IDLE`: build the UDP payload, send to
-  `spyder_ip:11116`, move to `AWAITING_RESPONSE`, start a timeout
-  (~300–500ms, tune against real hardware — some commands like image loads
-  may be slower).
-- Commands arriving while `AWAITING_RESPONSE` queue (bounded, e.g. 16 deep)
-  rather than interleave.
-- UDP response received while `AWAITING_RESPONSE` → relay back over serial
-  (append CR if not already present), cancel timeout, return to `IDLE`, pop
-  next queued command if any.
-- UDP datagram received while `IDLE` → stale/late, discard (no transaction ID
-  in the protocol to correlate against, so strict single-flight is what makes
-  this unambiguous).
-- Timeout with no response → synthesize a result-code-5 (execution error)
-  response back over serial so the control system's driver doesn't hang
-  indefinitely, and log it loudly.
+- A serial reader frames bytes into commands and puts them on a bounded
+  queue (16 deep). A worker takes one command, sends it over UDP, and waits
+  for the reply or a timeout before taking the next. Waiting on the queue is
+  `IDLE`; waiting for a reply is `AWAITING_RESPONSE`.
+- UDP reply while awaiting → relayed over serial, back to `IDLE`, next
+  command.
+- UDP datagram while `IDLE`, or from any host other than the Spyder's IP →
+  discarded and logged. Replies are matched by source IP only, not port.
+- Timeout (default **500 ms**, configurable 50–10,000 ms) → synthesized
+  `5` + CR back over serial, logged as an error.
+- **Queue overflow**: the newest command is dropped and logged, with **no**
+  reply. An immediate error would reach the control system ahead of replies
+  to earlier commands and be matched to the wrong one by a driver that
+  pipelines; the driver's own timeout covers it. Revisit if Crestron drivers
+  always wait for each reply.
+- **Config reload**: the bridge polls its config file every 2 s and restarts
+  its serial and UDP halves on a valid change; an invalid file is logged and
+  ignored so a bad edit never stops a working bridge. A command in flight at
+  that moment gets no reply.
+- If the serial port can't be opened or goes away (USB unplug), the bridge
+  exits and systemd restarts it every 5 s until the port is back.
 
 ## Hardware
 - USB-to-RS232 adapter: **Sabrent CB-FTDI** (genuine FTDI FT232RL chip —
   deliberately chosen over Prolific-chipset alternatives for clean native
-  Linux driver support).
+  Linux driver support). Appears on the Pi as
+  `/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_<serial>-if00-port0` (stable,
+  tied to that adapter) and `/dev/ttyUSB0`. The by-id name is recommended
+  unless adapters will be swapped in the field.
 - Target device is a Christie Spyder S at a configurable IP address.
-- Currently developing on a **Raspberry Pi 3 Model B v1.2**, built-in
-  Ethernet, with the explicit goal of the same code scaling to Pi 4/5 without
-  changes.
-- For bench testing without real Crestron hardware: a second identical
-  USB-RS232 adapter on the dev machine, connected to the Pi's adapter via a
-  **null modem adapter** (crosses TX/RX — a plain gender changer will NOT
-  work, since both adapters are wired DTE).
+- Developing on a **Raspberry Pi 3 Model B v1.2**, built-in Ethernet, with
+  the explicit goal of the same code scaling to Pi 4/5 without changes.
+- Bench testing without real Crestron hardware: a second identical
+  USB-RS232 adapter on a Windows PC running **PuTTY**, connected to the Pi's
+  adapter via a **null modem adapter** (crosses TX/RX — a plain gender
+  changer will NOT work, since both adapters are wired DTE). PuTTY settings
+  that matter: Serial, 9600 8N1, flow control **None** (default is
+  XON/XOFF), "Implicit LF in every CR" on, local echo and local line editing
+  forced on.
 
-## Config (must be tech-changeable at install time)
-- Baud rate (default 9600 8N1), serial port, UDP timeout, and the Spyder S's
-  IP address all need to be changeable without editing code or SSHing in.
-- Delivery mechanism: a local web GUI (small Flask/FastAPI server + simple
-  HTML form) — not a native desktop app, not a screen-attached GUI. Reused
-  later for kiosk-mode local access (browser pointed at localhost) if wanted,
-  which is why the GUI logic should be self-contained and not assume network
-  access from a remote client.
-- Config persistence: atomic writes (write-temp-then-rename) to a small
-  dedicated writable file (e.g. `/etc/spyder-bridge/config.yaml`), kept
-  separate from the rest of the app/OS in anticipation of an eventual
-  read-only-root setup for SD card longevity in 24/7 rack use. Not urgent for
-  v1, but don't design config storage in a way that forecloses it.
-- First-boot discovery: **static fallback IP** (documented, printed on the
-  physical unit) — deliberately simpler than mDNS-only or AP/captive-portal
-  modes.
+## Config (tech-changeable, no code edits or SSH)
+- **Bridge settings** (`/etc/spyder-bridge/config.yaml`): serial port, baud,
+  data bits, parity, stop bits, Spyder IP and UDP port, response timeout,
+  `udp_append_cr`. Validated per field; unknown keys rejected; a missing file
+  means defaults (first boot), a malformed one is an error.
+- **Persistence**: atomic write-temp-fsync-rename, in a small dedicated
+  directory kept apart from the app and OS, ready for an eventual read-only
+  root.
+- **Web GUI** (Flask, served by waitress on port 80): its own process and
+  systemd service, so a GUI problem can't take the bridge down. One page with:
+  - *Bridge* — every setting above, with detected serial ports and per-field
+    errors.
+  - *This unit's network* — a **Current** panel (host name, DHCP/Static mode,
+    every live `eth0` address labelled **DHCP / Static / Fallback /
+    Link-local**, gateway, DNS, cable-unplugged warning) and **Change Host
+    Name** / **Change Address** (DHCP, or static address, mask, optional
+    gateway and DNS, all validated). The fallback and link-local addresses
+    are always kept, so a bad address can't lock anyone out. Address changes
+    apply 2 s after the page saying where to reconnect has been sent.
+  - *Password* — change it (8+ characters).
+- Serves on IPv4 **and IPv6**: Windows resolves `<name>.local` to the Pi's
+  `fe80::` address first, and an IPv4-only page looked unreachable.
+- Suitable for later kiosk-mode use: nothing assumes a remote client.
+
+## Security
+- **Login required** for every page. One password per unit, stored hashed in
+  `/etc/spyder-bridge/password` (mode 600). The default is **`spyder`**,
+  set on first install; it's public (it's in the repo), so a banner nags
+  until it's changed. New passwords need 8+ characters, so the default can't
+  be set again from the page. `sudo ./install.sh --reset-password` restores
+  it. Failed logins are slowed by 1 s; sessions last 12 hours and end when
+  the web service restarts.
+- Cross-site form posts are refused (Origin check) and the session cookie is
+  `SameSite=Lax`.
+- No part of the app runs as root. Both services run as the `spyder-bridge`
+  system user (in `dialout` for serial access) under systemd sandboxing. The
+  whole filesystem is read-only to them except `/etc/spyder-bridge` for the
+  web GUI. Port 80 comes from `CAP_NET_BIND_SERVICE`.
+- Network changes go through NetworkManager, allowed by a polkit rule scoped
+  to the `spyder-bridge` user and three actions (edit system connections,
+  set hostname, network control).
+- Hostname changes: a root-owned path unit watches `/etc/hostname` and runs a
+  fixed script that updates `/etc/hosts` and restarts Avahi. The script
+  refuses names outside `[a-z0-9-]`.
+- **Known risk**: until the default password is changed, anyone on a unit's
+  network can log in and change its address.
+
+## First contact and discovery
+- **Fixed fallback IP `192.168.254.254/24`** on `eth0`, alongside DHCP or a
+  static address, always. A laptop cabled straight to the unit, set to
+  `192.168.254.1` / `255.255.255.0`, reaches `http://192.168.254.254/`. **This
+  is the documented way in for first setup and goes on the unit's label.**
+  DHCP retries forever (`dhcp-timeout infinity`), so the connection — and the
+  fallback address with it — stays up when no DHCP server is present.
+- **IPv4 link-local (`169.254.x.x`)** is also enabled. Tested: a laptop on
+  automatic settings, cabled directly, reaches the unit at its 169.254
+  address. But that address is picked automatically, so it can't be printed.
+- **`<hostname>.local` (mDNS) is a site-network convenience only.** Field test
+  (2026-09-28): a Windows laptop cabled directly with no DHCP never resolved
+  the name. It only appeared to work when the Pi was also on the same Wi-Fi,
+  where the name resolved over Wi-Fi. Don't rely on `.local` for first
+  contact.
+- Considered and not built: having the Pi run a DHCP server when no other is
+  present, so a laptop gets an address and a DNS name with no setup. Rejected
+  for now because a unit plugged into a site network while serving could
+  fight the site's DHCP server.
+
+## Install, update and services
+- **`install.sh` is the single source of truth**, on stock Raspberry Pi OS
+  (64-bit):
+  - installs apt packages (`python3-yaml`, `python3-serial`, `python3-flask`,
+    `python3-waitress`, `polkitd`) — no pip or virtualenv;
+  - creates the `spyder-bridge` user;
+  - copies the app to `/opt/spyder-bridge` (staged, precompiled, then
+    swapped; `VERSION` and `FALLBACK_IP` recorded alongside);
+  - creates the config from `config.example.yaml` only if absent, and sets
+    the default password only if none exists;
+  - configures the fallback IP and link-local on `eth0` without touching the
+    DHCP/static choice, so a static address survives updates;
+  - installs the polkit rule, the hostname helper, and the services, then
+    enables and restarts them.
+- **Update**: `git pull && sudo ./install.sh`. Config, password and network
+  settings are kept.
+- **Options**: `--reset-password`; `--disable-wifi` (deletes every saved
+  Wi-Fi network and turns the radio off — field units are wired only, and no
+  Wi-Fi password should ship on a unit or in an SD image; runs last so an SSH
+  session over Wi-Fi drops only once the install is done);
+  `SPYDER_FALLBACK_IP=addr/prefix` (or empty to skip);
+  `SPYDER_LINK_LOCAL=0`.
+- **Services**: `spyder-bridge` and `spyder-bridge-web`, `Restart=always`
+  every 5 s with no start limit, so a missing adapter or bad config recovers
+  by itself. Logs go to the journal (`journalctl -u spyder-bridge -f`).
+- **CI** (GitHub Actions): tests on Python 3.11 (Bookworm) and 3.13 (Trixie),
+  shellcheck of the install and helper scripts, and `systemd-analyze verify`
+  of the units.
 
 ## Distribution plan (not yet built — for later)
-- Hybrid model: an install script is the single source of truth (works on
-  top of stock Raspberry Pi OS, trivial to update via `git pull` + service
-  restart); periodically bake a ready-to-flash SD image *from* that script
-  for less technical customers.
+- Periodically bake a ready-to-flash SD image *from* the install script for
+  less technical customers. Run `--disable-wifi` and reset the password on
+  the source unit first.
 - Update mechanism: GitHub Releases. The bridge periodically (or on a
   GUI-triggered "check for updates" click) checks the latest release tag via
-  GitHub's API and pulls it in if newer.
+  GitHub's API and pulls it in if newer. `/opt/spyder-bridge/VERSION` already
+  records the installed version.
 - Public repo, free to use, MIT licensed.
 - Local kiosk-mode (monitor/keyboard/mouse) access was discussed and
   explicitly deferred — not in v1 scope, but the plan (a full desktop +
@@ -103,21 +201,60 @@ Single-flight request/response state machine (not fire-and-forget):
   tooling) explicitly does not support 32-bit ARM (`LinuxARM32`) anymore.
   This was discovered the hard way; don't regress to a 32-bit image.
   Hostname: `spyder-serial-bridge.local`.
-- System is updated (`apt update && full-upgrade`), git installed.
-- Repo cloned on the Pi at `~/spyder-serial-bridge` and separately cloned
-  locally on the dev Mac for editing via Claude Code.
-- USB-RS232 adapters ordered/on hand; null modem adapter needed for bench
-  testing is a separate, still-to-confirm part (regular gender changers on
-  hand are *not* sufficient — see Hardware section).
+- Bridge installed on the Pi from `main` via `install.sh`; both services
+  running. Wi-Fi (set up in Raspberry Pi Imager for bench work) has been
+  turned off with `--disable-wifi`.
+- Repo cloned on the Pi at `~/spyder-serial-bridge` and on the dev Mac for
+  editing via Claude Code. The Mac has a `.venv` (Homebrew Python) for tests.
+- Adapters and null modem adapter on hand; bench setup working.
 
-## Suggested build order
-1. Config loading (baud/port/timeout/IP), no hardware dependency.
-2. UDP header-framing logic + a small "fake Spyder" UDP listener stub for
-   testing — fully testable over network with zero serial hardware.
-3. Serial reader (CR-framing) once the adapters/null-modem are in hand —
-   plugs into code already proven correct on the UDP side.
-4. Wire the two halves together into the single-flight state machine
-   described above.
-5. Web GUI for config.
-6. systemd service + reliability hardening (auto-restart, eventual
-   read-only-root).
+## What's been tested
+On real hardware (Pi 3, Sabrent FTDI adapters, null modem, Windows PC with
+PuTTY, Spyder S at `192.168.55.77`), 2026-09-28:
+
+| Area | Result |
+| --- | --- |
+| `install.sh` on Raspberry Pi OS Lite 64-bit | Works; both services come up |
+| Serial → Pi → UDP → Spyder S → back to PuTTY | Works; reply `0` |
+| `spyder\0\0\0\0` framing | Accepted by the Spyder S |
+| Trailing CR on UDP | Doesn't matter; accepted either way |
+| Config page from a PC on the site network via `.local` | Works |
+| Fallback IP `192.168.254.254` from a directly cabled laptop | Works |
+| Link-local `169.254.x.x` from a directly cabled laptop | Works |
+| `.local` from a directly cabled Windows laptop, no DHCP | **Fails**; see First contact |
+| `--disable-wifi` | Wi-Fi off, everything else still works |
+| Default password `spyder` via `--reset-password` | Works |
+| Static address set from the config page | Works; reachable at the new address, labelled Static |
+| Host name change from the config page | Works; found at the new `.local` name |
+| Update run (`sudo ./install.sh`) after those changes | Keeps the static address and password |
+| Switching back to DHCP | Works; gets a lease again |
+
+Automated: 158 pytest tests. They include full serial → bridge → UDP →
+fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
+`nmcli` checking the exact commands sent and parsing its output formats.
+
+## Open items
+- **Timeout tuning**: check slow commands such as image loads against the
+  500 ms default.
+- **USB replug**: unplug and replug the adapter; the bridge should recover
+  within a few seconds.
+- **Query commands** that return data: confirm the reply format.
+- **Late replies**: a reply arriving after its timeout but while the next
+  command is in flight is taken as that command's answer; the protocol has no
+  transaction ID. A longer timeout makes it less likely; a short quiet period
+  after each timeout could reduce it further.
+- **Status view**: the config page doesn't show bridge health (last command,
+  timeouts, serial port open). Would help field diagnosis.
+- **Read-only root**: `/etc/spyder-bridge` and `/etc/NetworkManager/` (network
+  settings) must stay writable.
+- **Update checker and SD image baking** (see Distribution plan).
+
+## Build order (all done)
+1. ~~Config loading (baud/port/timeout/IP), no hardware dependency.~~
+2. ~~UDP header-framing logic + a "fake Spyder" UDP listener for testing.~~
+3. ~~Serial reader (CR-framing).~~ Real FTDI link plus a pty-backed virtual
+   port and `serial_console` for testing without hardware.
+4. ~~Single-flight state machine.~~
+5. ~~Web GUI for config.~~ Now also password, host name and address.
+6. ~~systemd services + reliability hardening~~ (auto-restart, sandboxing);
+   read-only root still to come.
