@@ -3,6 +3,8 @@
 #
 #   sudo ./install.sh                    install or update
 #   sudo ./install.sh --reset-password   same, and reset the config page password
+#   sudo ./install.sh --disable-wifi     same, and turn off Wi-Fi and delete saved
+#                                        Wi-Fi networks (for units going to site)
 #
 # Safe to re-run: this is also the update path (git pull && sudo ./install.sh).
 # An existing /etc/spyder-bridge/config.yaml is never overwritten.
@@ -12,10 +14,10 @@
 # cabled straight to the unit. Override with SPYDER_FALLBACK_IP=addr/prefix,
 # or set it empty to skip: sudo SPYDER_FALLBACK_IP= ./install.sh
 #
-# And enables an IPv4 link-local (169.254.x.x) address on eth0, so a laptop
-# cabled straight to the unit with no setup at all (it self-assigns
-# 169.254.x.x too) can reach http://<hostname>.local/. Turn off, and undo on
-# an existing install, with: sudo SPYDER_LINK_LOCAL=0 ./install.sh
+# And enables an IPv4 link-local (169.254.x.x) address on eth0. It helps
+# laptops that self-assign 169.254.x.x reach the unit directly, but isn't
+# a dependable way in (the fallback IP is). Turn off, and undo on an
+# existing install, with: sudo SPYDER_LINK_LOCAL=0 ./install.sh
 #
 # The config page is password protected. First install sets the default
 # password (spyderspyder); it's kept on updates unless --reset-password is
@@ -33,6 +35,7 @@ LINK_LOCAL=${SPYDER_LINK_LOCAL-1}
 ETH_DEV=eth0
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RESET_PASSWORD=0
+DISABLE_WIFI=0
 
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -40,16 +43,18 @@ warn() { printf 'warning: %s\n' "$*" >&2; }
 
 # Name of the NetworkManager profile for $ETH_DEV, creating one if needed.
 eth_connection() {
-    local con name type
+    local con line name
     con=$(nmcli -g GENERAL.CONNECTION device show "$ETH_DEV" 2>/dev/null || true)
     if [[ -n $con ]]; then
         echo "$con"
         return
     fi
     # No cable plugged in right now: use an existing wired profile if any.
-    while IFS=: read -r name type; do
-        if [[ $type == 802-3-ethernet ]]; then
-            echo "$name"
+    while IFS= read -r line; do
+        # nmcli escapes ":" in names as "\:", so split at the last colon.
+        if [[ ${line##*:} == 802-3-ethernet ]]; then
+            name=${line%:*}
+            echo "${name//\\:/:}"
             return
         fi
     done < <(nmcli -g NAME,TYPE connection show)
@@ -59,6 +64,30 @@ eth_connection() {
 }
 
 # Fallback IP and link-local on $ETH_DEV, alongside DHCP.
+# Field units are wired only. Delete every saved Wi-Fi network (so no
+# password stays on the unit or in images made from it) and turn the radio
+# off; NetworkManager remembers that across reboots.
+disable_wifi() {
+    local line name deleted=0
+    if ! command -v nmcli >/dev/null || ! systemctl is-active -q NetworkManager; then
+        warn "NetworkManager not running; Wi-Fi not disabled"
+        return
+    fi
+    while IFS= read -r line; do
+        # nmcli escapes ":" in names as "\:", so split at the last colon.
+        if [[ ${line##*:} == 802-11-wireless ]]; then
+            name=${line%:*}
+            name=${name//\\:/:}
+            nmcli connection delete "$name" >/dev/null
+            echo "deleted saved Wi-Fi network '$name'"
+            deleted=$((deleted + 1))
+        fi
+    done < <(nmcli -g NAME,TYPE connection show)
+    [[ $deleted -gt 0 ]] || echo "no saved Wi-Fi networks"
+    nmcli radio wifi off
+    echo "Wi-Fi radio off (turn back on with: sudo nmcli radio wifi on)"
+}
+
 configure_first_contact() {
     if ! command -v nmcli >/dev/null || ! systemctl is-active -q NetworkManager; then
         warn "NetworkManager not running; fallback IP and link-local not configured"
@@ -100,6 +129,7 @@ configure_first_contact() {
 for arg in "$@"; do
     case $arg in
         --reset-password) RESET_PASSWORD=1 ;;
+        --disable-wifi) DISABLE_WIFI=1 ;;
         -h | --help) sed -n '2,/^set -euo/{/^set/d;s/^# \{0,1\}//;p;}' "$0"; exit 0 ;;
         *) die "unknown option: $arg (see --help)" ;;
     esac
@@ -209,17 +239,14 @@ addrs=$(hostname -I 2>/dev/null || true)
 cat <<EOF
 
 Installed version $version.
-Config page:  http://$(hostname).local/
 EOF
-for a in $addrs; do
-    [[ $a == *:* ]] || echo "              http://$a/"
-done
-if [[ $LINK_LOCAL == 1 ]]; then
-    echo "No setup:     http://$(hostname).local/  (laptop cabled directly, automatic IP)"
-fi
 if [[ -n $FALLBACK_IP ]]; then
-    echo "Fallback:     http://${FALLBACK_IP%/*}/  (laptop cabled directly, set to e.g. ${FALLBACK_IP%.*}.1/${FALLBACK_IP#*/})"
+    echo "First setup:  http://${FALLBACK_IP%/*}/  (laptop cabled directly, set to e.g. ${FALLBACK_IP%.*}.1/${FALLBACK_IP#*/})"
 fi
+echo "Site network: http://$(hostname).local/"
+for a in $addrs; do
+    [[ $a == *:* || $a == "${FALLBACK_IP%/*}" || $a == 169.254.* ]] || echo "              http://$a/"
+done
 cat <<EOF
 Logs:         journalctl -u spyder-bridge -f
 EOF
@@ -232,4 +259,11 @@ if [[ -n $new_password ]]; then
     To put the default back: sudo ./install.sh --reset-password
   └──────────────────────────────────────────────────────┘
 EOF
+fi
+
+# Last, so an SSH session over Wi-Fi only drops once everything is done.
+if [[ $DISABLE_WIFI == 1 ]]; then
+    log "Disabling Wi-Fi"
+    echo "If you're connected over Wi-Fi, this session will now drop; reconnect over Ethernet."
+    disable_wifi
 fi

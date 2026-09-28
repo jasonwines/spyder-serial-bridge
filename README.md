@@ -28,13 +28,24 @@ What the installer does:
 
 ### Connecting to a unit
 
-1. **On the site network:** `http://<pi-hostname>.local/`.
-2. **Laptop cabled straight to the unit, no setup:** leave the laptop on automatic (DHCP). With no DHCP server it gives itself a `169.254.x.x` address, as the unit does, so `http://<pi-hostname>.local/` should work. Nothing to print on a label, since the unit's address is picked automatically.
-3. **Fallback that always works**, whatever DHCP or static address the unit has been given: set the laptop to a static `192.168.254.1`, subnet mask `255.255.255.0`, and open `http://192.168.254.254/`. Print this address on the unit.
+1. **First setup, or no network:** cable a laptop straight to the unit, set the laptop to a static `192.168.254.1`, subnet mask `255.255.255.0`, and open `http://192.168.254.254/`. This works whatever DHCP or static address the unit has been given. Print it on the unit's label.
+2. **On the site network:** `http://<pi-hostname>.local/`, or the unit's DHCP or static address (shown on the config page).
+
+`.local` names depend on the laptop: Windows often won't look them up over a direct cable with no DHCP, so don't rely on them for first contact. The unit also has an automatic link-local address (`169.254.x.x`, shown on the config page) and serves the page over IPv6; these help where the laptop cooperates but aren't a dependable way in.
 
 Use a different fallback address with `sudo SPYDER_FALLBACK_IP=10.254.254.254/24 ./install.sh`, or skip it with `sudo SPYDER_FALLBACK_IP= ./install.sh`. Avoid a subnet the site network already uses.
 
 Turn off the link-local address, and undo it on an existing install, with `sudo SPYDER_LINK_LOCAL=0 ./install.sh`.
+
+### Preparing a unit for site
+
+Field units are wired only. If Wi-Fi was set up when flashing the SD card (for bench work), run the installer with `--disable-wifi` before the unit ships or before making an SD image from it:
+
+```sh
+sudo ./install.sh --disable-wifi
+```
+
+This turns Wi-Fi off and deletes every saved Wi-Fi network, so no Wi-Fi password is left on the unit or copied into images. Run it over Ethernet or a local console: an SSH session over Wi-Fi drops when it finishes. To turn Wi-Fi back on later: `sudo nmcli radio wifi on`, then add a network with `sudo nmcli device wifi connect <SSID> --ask`.
 
 Logs: `journalctl -u spyder-bridge -f` (or `-u spyder-bridge-web`).
 
