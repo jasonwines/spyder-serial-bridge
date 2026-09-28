@@ -51,8 +51,8 @@ class Config:
     spyder_ip: str = "192.168.0.100"
     spyder_port: int = 11116
     response_timeout_ms: int = 500
-    # Outgoing UDP omits the serial CR by design; flip this if the Spyder
-    # silently rejects commands (first thing to try on real hardware).
+    # Outgoing UDP omits the serial CR. The Spyder S accepts commands either
+    # way; kept configurable in case other models or firmware differ.
     udp_append_cr: bool = False
 
     def __post_init__(self) -> None:

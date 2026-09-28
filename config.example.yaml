@@ -22,6 +22,6 @@ spyder_port: 11116
 # time out.
 response_timeout_ms: 500
 
-# Outgoing UDP omits the serial CR by default. If the Spyder silently
-# ignores commands, set this to true -- it's the first thing to test.
+# Add a CR to commands sent to the Spyder. The Spyder S accepts commands
+# either way; leave off unless a particular unit ignores commands.
 udp_append_cr: false

@@ -15,17 +15,21 @@ Repo: https://github.com/jasonwines/spyder-serial-bridge (public, MIT licensed)
 - **IP side**: UDP to port **11116** on the Spyder S. Each command is sent as:
   `b"spyder\x00\x00\x00\x00" + command_bytes` — the literal ASCII string
   `spyder` followed by four `0x00` bytes, concatenated directly onto the
-  command bytes with **no separator** (confirmed from Christie's X80
-  serial/IP command reference; should still be spot-checked against the
-  Spyder S-specific manual before going live).
-- **Outgoing UDP currently omits the trailing CR** — decided deliberately,
-  not an oversight. Flag this as the first thing to test if the Spyder S
-  silently rejects commands: it may want the CR after all.
+  command bytes with **no separator** (from Christie's X80 serial/IP
+  command reference; **confirmed working on a real Spyder S**, 2026-09-28).
+- **Trailing CR on outgoing UDP doesn't matter**: tested on a real Spyder S
+  (2026-09-28), which accepts commands with or without it. The bridge omits
+  it by default; the `udp_append_cr` setting stays in case other models or
+  firmware care.
 - **Responses**: full bidirectional relay is required. The Spyder returns a
   response for every command; first argument is a result code (0=success,
   1=empty/no data, 2=invalid header, 3=missing arguments, 4=invalid argument
-  value, 5=execution error). Responses do not appear to carry the `spyder`
-  header — that framing is only needed on the way in.
+  value, 5=execution error). Responses do not carry the `spyder` header —
+  that framing is only needed on the way in. **Confirmed on a real Spyder
+  S** (2026-09-28): a successful command replied with the bare result code
+  `0`, no header and no trailing data. The bridge's synthesized timeout
+  reply (`5` + CR) therefore matches the real format. Query commands that
+  return data haven't been checked yet.
 
 ## Core software architecture
 Single-flight request/response state machine (not fire-and-forget):
