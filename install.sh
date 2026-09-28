@@ -10,6 +10,11 @@
 # alongside DHCP, so a tech can always reach the config page with a laptop
 # cabled straight to the unit. Override with SPYDER_FALLBACK_IP=addr/prefix,
 # or set it empty to skip: sudo SPYDER_FALLBACK_IP= ./install.sh
+#
+# And enables an IPv4 link-local (169.254.x.x) address on eth0, so a laptop
+# cabled straight to the unit with no setup at all (it self-assigns
+# 169.254.x.x too) can reach http://<hostname>.local/. Turn off, and undo on
+# an existing install, with: sudo SPYDER_LINK_LOCAL=0 ./install.sh
 set -euo pipefail
 
 APP_DIR=/opt/spyder-bridge
@@ -18,6 +23,7 @@ CONF_FILE=$CONF_DIR/config.yaml
 SERVICE_USER=spyder-bridge
 SERVICES=(spyder-bridge.service spyder-bridge-web.service)
 FALLBACK_IP=${SPYDER_FALLBACK_IP-192.168.254.254/24}
+LINK_LOCAL=${SPYDER_LINK_LOCAL-1}
 ETH_DEV=eth0
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
@@ -45,23 +51,31 @@ eth_connection() {
     echo "Wired connection 1"
 }
 
-configure_fallback_ip() {
-    if [[ -z $FALLBACK_IP ]]; then
-        echo "skipped (SPYDER_FALLBACK_IP is empty)"
-        return
-    fi
+# Fallback IP and link-local on $ETH_DEV, alongside DHCP.
+configure_first_contact() {
     if ! command -v nmcli >/dev/null || ! systemctl is-active -q NetworkManager; then
-        warn "NetworkManager not running; fallback IP not configured"
+        warn "NetworkManager not running; fallback IP and link-local not configured"
         return
     fi
-    local con
+    local con ll
     con=$(eth_connection)
-    if nmcli -g ipv4.addresses connection show "$con" | tr ',' '\n' \
+    if [[ -z $FALLBACK_IP ]]; then
+        echo "fallback IP skipped (SPYDER_FALLBACK_IP is empty)"
+    elif nmcli -g ipv4.addresses connection show "$con" | tr ',' '\n' \
             | sed 's/^ *//' | grep -qxF "$FALLBACK_IP"; then
         echo "$FALLBACK_IP already on '$con'"
     else
         nmcli connection modify "$con" +ipv4.addresses "$FALLBACK_IP"
         echo "added $FALLBACK_IP to '$con'"
+    fi
+    # "default" rather than "disabled" when off, so turning it off restores
+    # NetworkManager's normal behaviour instead of forcing a new one.
+    if [[ $LINK_LOCAL == 1 ]]; then ll=enabled; else ll=default; fi
+    # ipv4.link-local needs NetworkManager 1.40+ (Pi OS Bookworm has 1.42).
+    if nmcli connection modify "$con" ipv4.link-local "$ll" 2>/dev/null; then
+        echo "IPv4 link-local (169.254.x.x) on '$con': $ll"
+    else
+        warn "this NetworkManager doesn't support ipv4.link-local; skipped"
     fi
     # Keep DHCP (and the connection) up with no DHCP server present, which
     # is exactly when the fallback address is needed. By default NM gives
@@ -130,8 +144,8 @@ else
     echo "created $CONF_FILE from config.example.yaml"
 fi
 
-log "Configuring fallback IP on $ETH_DEV"
-configure_fallback_ip
+log "Configuring first-contact addresses on $ETH_DEV"
+configure_first_contact
 
 log "Installing systemd services"
 for svc in "${SERVICES[@]}"; do
@@ -156,6 +170,9 @@ EOF
 for a in $addrs; do
     [[ $a == *:* ]] || echo "              http://$a/"
 done
+if [[ $LINK_LOCAL == 1 ]]; then
+    echo "No setup:     http://$(hostname).local/  (laptop cabled directly, automatic IP)"
+fi
 if [[ -n $FALLBACK_IP ]]; then
     echo "Fallback:     http://${FALLBACK_IP%/*}/  (laptop cabled directly, set to e.g. ${FALLBACK_IP%.*}.1/${FALLBACK_IP#*/})"
 fi

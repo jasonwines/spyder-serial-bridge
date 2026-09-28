@@ -9,7 +9,7 @@ cd spyder-serial-bridge
 sudo ./install.sh
 ```
 
-Then open `http://<pi-hostname>.local/` and set the serial port, baud rate, and Spyder IP. The bridge applies saved settings within a few seconds.
+Then open `http://<pi-hostname>.local/` (the hostname set when flashing the SD card, e.g. `http://spyder-serial-bridge.local/`) and set the serial port, baud rate, and Spyder IP. The bridge applies saved settings within a few seconds.
 
 To update: `git pull && sudo ./install.sh`. Your config is kept.
 
@@ -20,13 +20,17 @@ What the installer does:
 - copies the app to `/opt/spyder-bridge`
 - creates `/etc/spyder-bridge/config.yaml` from [config.example.yaml](config.example.yaml) if it doesn't exist
 - installs and starts two systemd services: `spyder-bridge` (the bridge) and `spyder-bridge-web` (the config page on port 80)
-- adds the static fallback address `192.168.254.254/24` on `eth0`, alongside DHCP
+- adds the static fallback address `192.168.254.254/24` and an automatic link-local (`169.254.x.x`) address on `eth0`, alongside DHCP
 
-### Fallback IP
+### Connecting to a unit
 
-Every unit also answers on **192.168.254.254**, whatever DHCP hands out. To reach a unit with no network or DHCP server, cable a laptop straight to it, set the laptop to a static `192.168.254.1`, subnet mask `255.255.255.0`, and open `http://192.168.254.254/`.
+1. **On the site network:** `http://<pi-hostname>.local/`.
+2. **Laptop cabled straight to the unit, no setup:** leave the laptop on automatic (DHCP). With no DHCP server it gives itself a `169.254.x.x` address, as the unit does, so `http://<pi-hostname>.local/` should work. Nothing to print on a label, since the unit's address is picked automatically.
+3. **Fallback that always works:** set the laptop to a static `192.168.254.1`, subnet mask `255.255.255.0`, and open `http://192.168.254.254/`. Print this address on the unit.
 
-Use a different address with `sudo SPYDER_FALLBACK_IP=10.254.254.254/24 ./install.sh`, or skip it with `sudo SPYDER_FALLBACK_IP= ./install.sh`. Avoid a subnet the site network already uses.
+Use a different fallback address with `sudo SPYDER_FALLBACK_IP=10.254.254.254/24 ./install.sh`, or skip it with `sudo SPYDER_FALLBACK_IP= ./install.sh`. Avoid a subnet the site network already uses.
+
+Turn off the link-local address, and undo it on an existing install, with `sudo SPYDER_LINK_LOCAL=0 ./install.sh`.
 
 Logs: `journalctl -u spyder-bridge -f` (or `-u spyder-bridge-web`).
 
