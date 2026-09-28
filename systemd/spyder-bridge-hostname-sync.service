@@ -1,0 +1,6 @@
+[Unit]
+Description=Update /etc/hosts and mDNS after a hostname change
+
+[Service]
+Type=oneshot
+ExecStart=/opt/spyder-bridge/hostname-sync.sh

@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch for hostname changes made from the Spyder bridge config page
+
+[Path]
+PathChanged=/etc/hostname
+
+[Install]
+WantedBy=multi-user.target

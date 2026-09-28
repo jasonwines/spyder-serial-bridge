@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Network settings saved · Spyder Serial Bridge{% endblock %}
+{% block content %}
+  <h1>Network settings saved</h1>
+
+  {% if address_changed %}
+  <div class="banner warn" role="status">
+    The unit switches to its new address in a few seconds, so this page
+    will stop responding. Reconnect at one of the addresses below and log in again.
+  </div>
+  {% elif hostname_changed %}
+  <div class="banner ok" role="status">
+    The new name is active. Reconnect using it and log in again.
+  </div>
+  {% else %}
+  <div class="banner ok" role="status">Nothing changed.</div>
+  {% endif %}
+
+  <fieldset>
+    <legend>Where to find this unit now</legend>
+    <ul class="plain">
+      <li><a href="http://{{ settings.hostname }}.local/">http://{{ settings.hostname }}.local/</a></li>
+      {% if settings.is_static %}
+      <li><a href="http://{{ settings.address }}/">http://{{ settings.address }}/</a> (static)</li>
+      {% else %}
+      <li>The address your DHCP server gives it. The name above is the easiest way to find it.</li>
+      {% endif %}
+      {% if fallback_ip %}
+      <li>
+        Fallback: <a href="http://{{ fallback_ip }}/">http://{{ fallback_ip }}/</a>
+        with a laptop cabled straight to the unit and set to an address in {{ fallback_net }}.
+        This always works, even if the new settings are wrong.
+      </li>
+      {% endif %}
+    </ul>
+  </fieldset>
+
+  {% if not address_changed %}
+  <p><a href="/">Back to settings</a></p>
+  {% endif %}
+{% endblock %}

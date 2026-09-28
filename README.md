@@ -9,24 +9,28 @@ cd spyder-serial-bridge
 sudo ./install.sh
 ```
 
-Then open `http://<pi-hostname>.local/` (the hostname set when flashing the SD card, e.g. `http://spyder-serial-bridge.local/`) and set the serial port, baud rate, and Spyder IP. The bridge applies saved settings within a few seconds.
+Then open `http://<pi-hostname>.local/` (the hostname set when flashing the SD card, e.g. `http://spyder-serial-bridge.local/`) and log in with the default password **`spyderspyder`**. Change it on the config page before leaving site; the page reminds you until you do. Set the serial port, baud rate, and Spyder IP; the bridge applies saved settings within a few seconds. The same page sets the unit's own name and address (DHCP or static) and its password.
 
-To update: `git pull && sudo ./install.sh`. Your config is kept.
+To update: `git pull && sudo ./install.sh`. Your config, password and network settings are kept.
+
+Forgotten the password? `sudo ./install.sh --reset-password` puts the default back.
 
 What the installer does:
 
-- installs Python packages from apt (`python3-yaml`, `python3-serial`, `python3-flask`, `python3-waitress`)
+- installs Python packages from apt (`python3-yaml`, `python3-serial`, `python3-flask`, `python3-waitress`, `polkitd`)
 - creates a `spyder-bridge` system user in the `dialout` group
 - copies the app to `/opt/spyder-bridge`
 - creates `/etc/spyder-bridge/config.yaml` from [config.example.yaml](config.example.yaml) if it doesn't exist
 - installs and starts two systemd services: `spyder-bridge` (the bridge) and `spyder-bridge-web` (the config page on port 80)
+- sets the config page password to the default on first install (stored hashed in `/etc/spyder-bridge/password`)
 - adds the static fallback address `192.168.254.254/24` and an automatic link-local (`169.254.x.x`) address on `eth0`, alongside DHCP
+- adds a polkit rule so the config page (and only it) can change this unit's hostname and address through NetworkManager, plus a small root helper that keeps `/etc/hosts` and the `.local` name in step when the hostname changes
 
 ### Connecting to a unit
 
 1. **On the site network:** `http://<pi-hostname>.local/`.
 2. **Laptop cabled straight to the unit, no setup:** leave the laptop on automatic (DHCP). With no DHCP server it gives itself a `169.254.x.x` address, as the unit does, so `http://<pi-hostname>.local/` should work. Nothing to print on a label, since the unit's address is picked automatically.
-3. **Fallback that always works:** set the laptop to a static `192.168.254.1`, subnet mask `255.255.255.0`, and open `http://192.168.254.254/`. Print this address on the unit.
+3. **Fallback that always works**, whatever DHCP or static address the unit has been given: set the laptop to a static `192.168.254.1`, subnet mask `255.255.255.0`, and open `http://192.168.254.254/`. Print this address on the unit.
 
 Use a different fallback address with `sudo SPYDER_FALLBACK_IP=10.254.254.254/24 ./install.sh`, or skip it with `sudo SPYDER_FALLBACK_IP= ./install.sh`. Avoid a subnet the site network already uses.
 

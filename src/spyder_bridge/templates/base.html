@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Spyder Serial Bridge{% endblock %}</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #5d6673;
+    --border: #d5dae1; --accent: #0b5cad; --accent-text: #fff;
+    --ok-bg: #e6f4ea; --ok-text: #1e5b2e; --err-bg: #fdecea; --err-text: #8a1c14;
+    --warn-bg: #fff4d6; --warn-text: #6b4a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15181c; --panel: #1e2227; --text: #e6e9ed; --muted: #9aa3ae;
+      --border: #363c44; --accent: #5aa2ec; --accent-text: #0b1520;
+      --ok-bg: #173323; --ok-text: #9fdcb0; --err-bg: #3b1a17; --err-text: #f4b3ab;
+      --warn-bg: #3a2f12; --warn-text: #f1d48a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  a { color: var(--accent); }
+  a:visited { color: var(--accent); }
+  main { max-width: 38rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.1rem; margin: 2rem 0 .75rem; }
+  .sub { color: var(--muted); margin: 0 0 1.25rem; font-size: .9rem; word-break: break-all; }
+  fieldset {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem 1rem .25rem; margin: 0 0 1rem; min-width: 0;
+  }
+  fieldset fieldset { background: none; border: 0; padding: 0; margin: 0; }
+  fieldset[disabled] { opacity: .5; }
+  legend { font-weight: 600; padding: 0 .35rem; }
+  .field { margin-bottom: .9rem; }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+  .row.two { grid-template-columns: repeat(2, 1fr); }
+  label { display: block; font-weight: 500; margin-bottom: .25rem; }
+  input[type=text], input[type=number], input[type=password], select {
+    width: 100%; padding: .5rem .6rem; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .invalid input, .invalid select { border-color: var(--err-text); }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: .2rem; }
+  .error { color: var(--err-text); font-size: .85rem; margin-top: .2rem; }
+  .check, .radio { display: flex; gap: .5rem; align-items: flex-start; }
+  .check input, .radio input { margin-top: .3rem; }
+  .check label, .radio label { font-weight: 500; margin: 0; }
+  .radios { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .banner { padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+  .banner.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .banner.err { background: var(--err-bg); color: var(--err-text); }
+  .banner.warn { background: var(--warn-bg); color: var(--warn-text); }
+  button {
+    font: inherit; font-weight: 600; padding: .6rem 1.4rem; border: 0; border-radius: 6px;
+    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  }
+  button.quiet {
+    background: none; color: var(--accent); border: 1px solid var(--border);
+    padding: .35rem .9rem; font-weight: 500;
+  }
+  table.status { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: .95rem; }
+  table.status th { text-align: left; font-weight: 500; color: var(--muted); padding: .3rem .75rem .3rem 0; vertical-align: top; white-space: nowrap; }
+  table.status td { padding: .3rem 0; word-break: break-all; }
+  .tag {
+    display: inline-block; font-size: .75rem; font-weight: 600; padding: .05rem .45rem;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--muted); margin-left: .35rem;
+  }
+  .tag.primary { border-color: var(--accent); color: var(--accent); }
+  ul.plain { padding-left: 1.2rem; }
+  ul.plain li { margin-bottom: .4rem; }
+  code { font-size: .95em; }
+  @media (max-width: 30rem) { .row, .row.two { grid-template-columns: 1fr; gap: 0; } }
+</style>
+</head>
+<body>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
