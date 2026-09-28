@@ -253,3 +253,9 @@ def test_default_password_nags_until_changed(anon, path):
 
 def test_no_nag_with_own_password(client):
     assert "still uses the default password" not in client.get("/").get_data(as_text=True)
+
+
+def test_description_on_login_and_main_page(anon):
+    assert web.DESCRIPTION in anon.get("/login").get_data(as_text=True)
+    anon.post("/login", data={"password": PASSWORD})
+    assert web.DESCRIPTION in anon.get("/").get_data(as_text=True)

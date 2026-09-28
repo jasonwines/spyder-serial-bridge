@@ -1,5 +1,5 @@
 # spyder-serial-bridge
-This RS232-to-IP bridge for Christie Spyder lets existing Spyder processors using legacy serial control (Crestron, etc.) send API commands to Spyder processors over the network with no changes to existing programming.
+RS232-to-IP bridge for Christie Spyder video processors — lets serial-only connections from control systems (Crestron, etc.) convert the serial Spyder API commands to network commands with no changes to existing control system programming.
 
 ## Install (Raspberry Pi OS, 64-bit)
 

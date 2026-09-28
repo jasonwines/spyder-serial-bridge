@@ -30,6 +30,7 @@
   header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
   h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
   h2 { font-size: 1.1rem; margin: 2rem 0 .75rem; }
+  .lede { margin: 0 0 .5rem; max-width: 34rem; }
   .sub { color: var(--muted); margin: 0 0 1.25rem; font-size: .9rem; word-break: break-all; }
   fieldset {
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
@@ -64,7 +65,7 @@
   }
   button.quiet {
     background: none; color: var(--accent); border: 1px solid var(--border);
-    padding: .35rem .9rem; font-weight: 500;
+    padding: .35rem .9rem; font-weight: 500; white-space: nowrap; flex-shrink: 0;
   }
   table.status { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: .95rem; }
   table.status th { text-align: left; font-weight: 500; color: var(--muted); padding: .3rem .75rem .3rem 0; vertical-align: top; white-space: nowrap; }

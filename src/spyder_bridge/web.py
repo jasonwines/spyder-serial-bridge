@@ -52,6 +52,13 @@ from .network import (
 
 log = logging.getLogger(__name__)
 
+# Shown under the title on every page.
+DESCRIPTION = (
+    "RS232-to-IP bridge for Christie Spyder video processors — lets serial-only "
+    "connections from control systems (Crestron, etc.) convert the serial Spyder "
+    "API commands to network commands with no changes to existing control system "
+    "programming."
+)
 PARITY_LABELS = {"N": "None", "E": "Even", "O": "Odd"}
 _INT_FIELDS = {"baud_rate", "data_bits", "stop_bits", "spyder_port", "response_timeout_ms"}
 _BOOL_FIELDS = {"udp_append_cr"}
@@ -134,6 +141,7 @@ def create_app(
         SESSION_COOKIE_SAMESITE="Lax",
         PERMANENT_SESSION_LIFETIME=SESSION_LIFETIME,
     )
+    app.jinja_env.globals["description"] = DESCRIPTION
     path = resolve_config_path(config_path)
     pw_path = auth.password_path(path)
     net = network if network is not None else NmcliBackend()

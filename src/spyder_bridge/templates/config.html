@@ -10,6 +10,7 @@
   <header>
     <div>
       <h1>Spyder Serial Bridge</h1>
+      <p class="lede">{{ description }}</p>
       <p class="sub">
         {% if status %}{{ status.settings.hostname }} · {% endif %}Config file: {{ config_path }}
       </p>
@@ -187,14 +188,17 @@
 
   <form method="post" action="{{ url_for('save_network') }}" id="network-form">
     <fieldset>
-      <legend>Change</legend>
+      <legend>Change Host Name</legend>
       <div class="field {{ 'invalid' if net_errors.hostname }}">
-        <label for="hostname">Name</label>
+        <label for="hostname">Host name</label>
         <input type="text" id="hostname" name="hostname" value="{{ net.hostname }}"
                autocapitalize="none" spellcheck="false" {{ aria(net_errors, 'hostname', 'net-') }}>
         <div class="hint">The unit is found at http://<em>name</em>.local/. Give each unit on a network its own name.</div>
         {{ field_error(net_errors, 'hostname', 'net-') }}
       </div>
+    </fieldset>
+    <fieldset>
+      <legend>Change Address</legend>
       <div class="field {{ 'invalid' if net_errors.mode }}">
         <div class="radios" role="radiogroup" aria-label="Address mode">
           <div class="radio">
