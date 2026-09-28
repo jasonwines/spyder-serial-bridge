@@ -243,7 +243,7 @@ def test_bad_password_change(client, path, data, fragment):
 # -------------------------------------------------------- default password
 
 def test_default_password_nags_until_changed(anon, path):
-    auth.set_password(auth.password_path(path), auth.DEFAULT_PASSWORD)
+    auth.reset_to_default(auth.password_path(path))
     anon.post("/login", data={"password": auth.DEFAULT_PASSWORD})
     assert "still uses the default password" in anon.get("/").get_data(as_text=True)
     anon.post("/password", data={"current": auth.DEFAULT_PASSWORD,
@@ -267,3 +267,12 @@ def test_description_on_login_and_main_page(anon):
 )
 def test_listen_spec(host, spec):
     assert web.listen_spec(host, 80) == spec
+
+
+def test_cannot_change_back_to_short_default(anon, path):
+    auth.reset_to_default(auth.password_path(path))
+    anon.post("/login", data={"password": auth.DEFAULT_PASSWORD})
+    resp = anon.post("/password", data={"current": auth.DEFAULT_PASSWORD,
+                                        "new": "spyder", "confirm": "spyder"})
+    assert resp.status_code == 400
+    assert "at least 8" in resp.get_data(as_text=True)

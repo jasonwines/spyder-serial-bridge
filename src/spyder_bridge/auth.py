@@ -21,9 +21,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .config import atomic_write_text, resolve_config_path
 
 PASSWORD_FILENAME = "password"
+# Applies to passwords a tech chooses. The default is exempt: it's public
+# (it's in the README) either way, so its length adds nothing, and the
+# config page warns until it's changed.
 MIN_PASSWORD_LEN = 8
-# Public (it's in the README), so the config page warns until it's changed.
-DEFAULT_PASSWORD = "spyderspyder"
+DEFAULT_PASSWORD = "spyder"
 
 
 def password_path(config_path: str | os.PathLike[str] | None = None) -> Path:
@@ -31,8 +33,17 @@ def password_path(config_path: str | os.PathLike[str] | None = None) -> Path:
 
 
 def set_password(path: Path, password: str) -> None:
+    """Store a password a tech chose; must be at least MIN_PASSWORD_LEN long."""
     if len(password) < MIN_PASSWORD_LEN:
         raise ValueError(f"password must be at least {MIN_PASSWORD_LEN} characters")
+    _store(path, password)
+
+
+def reset_to_default(path: Path) -> None:
+    _store(path, DEFAULT_PASSWORD)
+
+
+def _store(path: Path, password: str) -> None:
     atomic_write_text(path, generate_password_hash(password) + "\n", 0o600)
 
 
@@ -66,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.if_missing and password_is_set(path):
         return 0
-    set_password(path, DEFAULT_PASSWORD)
+    reset_to_default(path)
     print(DEFAULT_PASSWORD)
     return 0
 

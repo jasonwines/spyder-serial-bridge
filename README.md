@@ -9,7 +9,7 @@ cd spyder-serial-bridge
 sudo ./install.sh
 ```
 
-Then open `http://<pi-hostname>.local/` (the hostname set when flashing the SD card, e.g. `http://spyder-serial-bridge.local/`) and log in with the default password **`spyderspyder`**. Change it on the config page before leaving site; the page reminds you until you do. Set the serial port, baud rate, and Spyder IP; the bridge applies saved settings within a few seconds. The same page sets the unit's own name and address (DHCP or static) and its password.
+Then open `http://<pi-hostname>.local/` (the hostname set when flashing the SD card, e.g. `http://spyder-serial-bridge.local/`) and log in with the default password **`spyder`**. Change it on the config page before leaving site (new passwords need at least 8 characters); the page reminds you until you do. Set the serial port, baud rate, and Spyder IP; the bridge applies saved settings within a few seconds. The same page sets the unit's own name and address (DHCP or static) and its password.
 
 To update: `git pull && sudo ./install.sh`. Your config, password and network settings are kept.
 

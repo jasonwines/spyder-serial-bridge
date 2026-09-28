@@ -20,7 +20,7 @@
 # existing install, with: sudo SPYDER_LINK_LOCAL=0 ./install.sh
 #
 # The config page is password protected. First install sets the default
-# password (spyderspyder); it's kept on updates unless --reset-password is
+# password (spyder); it's kept on updates unless --reset-password is
 # given, which puts the default back.
 set -euo pipefail
 

@@ -36,8 +36,16 @@ def test_cli_reset_sets_default(tmp_path, capsys):
     cfg = tmp_path / "config.yaml"
     auth.set_password(tmp_path / "password", "forgotten-one")
     assert auth.main(["--config", str(cfg), "--reset"]) == 0
-    assert capsys.readouterr().out.strip() == "spyderspyder"
-    assert auth.check_password(tmp_path / "password", "spyderspyder")
+    assert capsys.readouterr().out.strip() == "spyder"
+    assert auth.check_password(tmp_path / "password", "spyder")
+
+
+def test_short_default_allowed_only_via_reset(tmp_path):
+    p = tmp_path / "password"
+    with pytest.raises(ValueError):
+        auth.set_password(p, auth.DEFAULT_PASSWORD)
+    auth.reset_to_default(p)
+    assert auth.check_password(p, "spyder")
 
 
 def test_cli_if_missing_keeps_existing(tmp_path, capsys):
