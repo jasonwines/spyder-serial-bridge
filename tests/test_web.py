@@ -259,3 +259,11 @@ def test_description_on_login_and_main_page(anon):
     assert web.DESCRIPTION in anon.get("/login").get_data(as_text=True)
     anon.post("/login", data={"password": PASSWORD})
     assert web.DESCRIPTION in anon.get("/").get_data(as_text=True)
+
+
+@pytest.mark.parametrize(
+    "host, spec",
+    [("*", "*:80"), ("0.0.0.0", "0.0.0.0:80"), ("::", "[::]:80"), ("fe80::1", "[fe80::1]:80")],
+)
+def test_listen_spec(host, spec):
+    assert web.listen_spec(host, 80) == spec

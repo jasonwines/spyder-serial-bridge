@@ -297,10 +297,18 @@ def create_app(
     return app
 
 
+def listen_spec(host: str, port: int) -> str:
+    """waitress ``listen=`` value. ``*`` means every IPv4 and IPv6 address."""
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Spyder bridge config web GUI.")
     parser.add_argument("--config", help="config file (default: standard location)")
-    parser.add_argument("--host", default="0.0.0.0", help="address to listen on")
+    parser.add_argument(
+        "--host", default="*",
+        help="address to listen on (default *: all IPv4 and IPv6 addresses)",
+    )
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args(argv)
     setup_logging()
@@ -309,10 +317,14 @@ def main(argv: list[str] | None = None) -> None:
         # Installed on the Pi by install.sh; sturdier than Flask's dev server.
         from waitress import serve
     except ImportError:
-        app.run(host=args.host, port=args.port)
+        # "::" is dual-stack on Linux and macOS.
+        app.run(host="::" if args.host == "*" else args.host, port=args.port)
     else:
-        log.info("serving on http://%s:%d/", args.host, args.port)
-        serve(app, host=args.host, port=args.port, threads=4)
+        # IPv6 matters: Windows resolves <name>.local to the Pi's fe80::
+        # link-local address first, so an IPv4-only page looks unreachable.
+        listen = listen_spec(args.host, args.port)
+        log.info("serving on %s", listen)
+        serve(app, listen=listen, threads=4)
 
 
 if __name__ == "__main__":
