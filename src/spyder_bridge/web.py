@@ -1,14 +1,14 @@
-"""Local web GUI for editing the bridge config.
+"""Local web GUI: bridge settings, the Pi's network settings, and the password.
 
 Runs as its own process so a GUI problem can never take the bridge down.
-It only reads and writes the config file; the bridge notices the change and
-reloads itself (see ``__main__``).
+Bridge settings go to the config file, which the bridge watches and reloads
+(see ``__main__``). Network settings go to NetworkManager (see ``network``).
 
     python -m spyder_bridge.web --port 8080
 
-There is no login: the page is meant for the isolated control network or
-localhost (kiosk mode). Cross-site form posts are refused so a web page
-open in a tech's browser can't silently rewrite the config.
+Every page but the login page needs the unit's password (see ``auth``).
+Cross-site form posts are refused so a web page open in a tech's browser
+can't silently change anything.
 """
 
 from __future__ import annotations
@@ -17,13 +17,18 @@ import argparse
 import glob
 import logging
 import os
+import threading
+import time
 from dataclasses import fields
-from typing import Any, Mapping
+from datetime import timedelta
+from ipaddress import IPv4Interface
+from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 
-from flask import Flask, abort, redirect, render_template, request, url_for
+from flask import Flask, abort, redirect, render_template, request, session, url_for
 from serial.tools import list_ports
 
+from . import auth
 from .config import (
     MAX_TIMEOUT_MS,
     MIN_TIMEOUT_MS,
@@ -37,10 +42,40 @@ from .config import (
     save_config,
 )
 from .logsetup import setup_logging
+from .network import (
+    NetworkError,
+    NetworkSettings,
+    NmcliBackend,
+    prefix_to_mask,
+    validate_network_form,
+)
 
+log = logging.getLogger(__name__)
+
+# Shown under the title on every page.
+DESCRIPTION = (
+    "RS232-to-IP bridge for Christie Spyder video processors — lets serial-only "
+    "connections from control systems (Crestron, etc.) convert the serial Spyder "
+    "API commands to network commands with no changes to existing control system "
+    "programming."
+)
 PARITY_LABELS = {"N": "None", "E": "Even", "O": "Odd"}
 _INT_FIELDS = {"baud_rate", "data_bits", "stop_bits", "spyder_port", "response_timeout_ms"}
 _BOOL_FIELDS = {"udp_append_cr"}
+
+# Long enough for the "here's where the unit is moving to" page to reach
+# the browser before the old address goes away.
+NETWORK_APPLY_DELAY_S = 2.0
+FAILED_LOGIN_DELAY_S = 1.0
+SESSION_LIFETIME = timedelta(hours=12)
+
+Scheduler = Callable[[float, Callable[[], None]], None]
+
+
+def _schedule_in_background(delay: float, fn: Callable[[], None]) -> None:
+    timer = threading.Timer(delay, fn)
+    timer.daemon = True
+    timer.start()
 
 
 def detect_serial_ports() -> list[str]:
@@ -50,7 +85,7 @@ def detect_serial_ports() -> list[str]:
 
 
 def parse_form(form: Mapping[str, str]) -> tuple[dict[str, Any], dict[str, str]]:
-    """Turn submitted form fields into Config values plus per-field errors.
+    """Turn submitted bridge fields into Config values plus per-field errors.
 
     Values are returned even when invalid so the form can be re-shown with
     what the user typed.
@@ -82,15 +117,66 @@ def parse_form(form: Mapping[str, str]) -> tuple[dict[str, Any], dict[str, str]]
     return values, errors
 
 
-def create_app(config_path: str | os.PathLike[str] | None = None) -> Flask:
-    app = Flask(__name__)
-    path = resolve_config_path(config_path)
+def _network_form_values(settings: NetworkSettings) -> dict[str, str]:
+    return {
+        "hostname": settings.hostname,
+        "mode": settings.mode,
+        "address": settings.address,
+        "mask": prefix_to_mask(settings.prefix) if settings.is_static else "255.255.255.0",
+        "gateway": settings.gateway,
+        "dns": ", ".join(settings.dns),
+    }
 
-    def render(values: Mapping[str, Any], errors: Mapping[str, str], **extra: Any) -> str:
+
+def create_app(
+    config_path: str | os.PathLike[str] | None = None,
+    network: Any = None,
+    schedule: Scheduler = _schedule_in_background,
+) -> Flask:
+    """``network`` is an NmcliBackend or a stand-in with the same methods."""
+    app = Flask(__name__)
+    app.config.update(
+        # A fresh key per process: a restart just means logging in again.
+        SECRET_KEY=os.urandom(32),
+        SESSION_COOKIE_SAMESITE="Lax",
+        PERMANENT_SESSION_LIFETIME=SESSION_LIFETIME,
+    )
+    app.jinja_env.globals["description"] = DESCRIPTION
+    path = resolve_config_path(config_path)
+    pw_path = auth.password_path(path)
+    net = network if network is not None else NmcliBackend()
+
+    def network_status() -> tuple[Any, str | None]:
+        try:
+            return net.status(), None
+        except NetworkError as e:
+            return None, str(e)
+
+    def render(
+        *,
+        bridge_values: Mapping[str, Any] | None = None,
+        bridge_errors: Mapping[str, str] | None = None,
+        net_values: Mapping[str, str] | None = None,
+        net_errors: Mapping[str, str] | None = None,
+        pw_errors: Mapping[str, str] | None = None,
+        **extra: Any,
+    ) -> str:
+        load_error = None
+        if bridge_values is None:
+            try:
+                bridge_values = load_config(path).to_dict()
+            except ConfigError as e:
+                # Show defaults so the tech can fix things by saving over it.
+                bridge_values = Config().to_dict()
+                load_error = str(e)
+        status, network_error = network_status()
+        if net_values is None and status is not None:
+            net_values = _network_form_values(status.settings)
         return render_template(
             "config.html",
-            values=values,
-            errors=errors,
+            values=bridge_values,
+            errors=bridge_errors or {},
+            load_error=load_error,
             config_path=path,
             detected_ports=detect_serial_ports(),
             baud_rates=VALID_BAUD_RATES,
@@ -99,50 +185,130 @@ def create_app(config_path: str | os.PathLike[str] | None = None) -> Flask:
             stop_bits=VALID_STOP_BITS,
             min_timeout=MIN_TIMEOUT_MS,
             max_timeout=MAX_TIMEOUT_MS,
+            status=status,
+            network_error=network_error,
+            net=net_values or {},
+            net_errors=net_errors or {},
+            pw_errors=pw_errors or {},
+            min_password=auth.MIN_PASSWORD_LEN,
+            saved=request.args.get("saved"),
+            default_password=session.get("default_password", False),
             **extra,
         )
 
     @app.before_request
-    def refuse_cross_site_posts() -> None:
+    def guard() -> Any:
         if request.method == "POST":
             origin = request.headers.get("Origin")
             if origin is not None and urlsplit(origin).netloc != request.host:
                 abort(403)
+        if request.endpoint in ("login", "static") or session.get("authed"):
+            return None
+        return redirect(url_for("login"), code=303)
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login() -> Any:
+        no_password = not auth.password_is_set(pw_path)
+        if request.method == "GET":
+            return render_template("login.html", no_password=no_password)
+        password = request.form.get("password", "")
+        if auth.check_password(pw_path, password):
+            session.clear()
+            session["authed"] = True
+            session.permanent = True
+            # Remembered here rather than re-checked per page: hash checks
+            # are deliberately slow, especially on a Pi 3.
+            session["default_password"] = password == auth.DEFAULT_PASSWORD
+            return redirect(url_for("show"), code=303)
+        time.sleep(FAILED_LOGIN_DELAY_S)  # slow down guessing
+        log.warning("failed login from %s", request.remote_addr)
+        return render_template(
+            "login.html", error="Wrong password.", no_password=no_password
+        ), 401
+
+    @app.post("/logout")
+    def logout() -> Any:
+        session.clear()
+        return redirect(url_for("login"), code=303)
 
     @app.get("/")
     def show() -> str:
-        load_error = None
-        try:
-            cfg = load_config(path)
-        except ConfigError as e:
-            # Show defaults so the tech can fix things by saving over it.
-            cfg = Config()
-            load_error = str(e)
-        return render(
-            cfg.to_dict(), {},
-            saved=request.args.get("saved") == "1",
-            load_error=load_error,
-        )
+        return render()
 
     @app.post("/")
     def save() -> Any:
         values, errors = parse_form(request.form)
         if errors:
-            return render(values, errors), 400
+            return render(bridge_values=values, bridge_errors=errors), 400
         try:
             save_config(Config(**values), path)
         except OSError as e:
-            return render(values, {}, save_error=f"Could not write {path}: {e}"), 500
+            return render(bridge_values=values, save_error=f"Could not write {path}: {e}"), 500
         # Redirect so a browser refresh doesn't resubmit the form.
-        return redirect(url_for("show", saved=1), code=303)
+        return redirect(url_for("show", saved="bridge"), code=303)
+
+    @app.post("/network")
+    def save_network() -> Any:
+        fallback: IPv4Interface | None = net.fallback
+        values, errors, settings = validate_network_form(request.form, fallback)
+        if errors:
+            return render(net_values=values, net_errors=errors), 400
+        try:
+            before = net.status().settings
+            address_changed = net.save(settings)
+        except NetworkError as e:
+            return render(net_values=values, network_save_error=str(e)), 500
+        if address_changed:
+            schedule(NETWORK_APPLY_DELAY_S, net.activate)
+        log.warning(
+            "network settings changed: hostname %s, %s%s",
+            settings.hostname, settings.mode,
+            f" {settings.address}/{settings.prefix}" if settings.is_static else "",
+        )
+        return render_template(
+            "network_applied.html",
+            settings=settings,
+            hostname_changed=settings.hostname != before.hostname,
+            address_changed=address_changed,
+            fallback_ip=str(fallback.ip) if fallback else None,
+            fallback_net=str(fallback.network) if fallback else None,
+        )
+
+    @app.post("/password")
+    def change_password() -> Any:
+        current = request.form.get("current", "")
+        new = request.form.get("new", "")
+        confirm = request.form.get("confirm", "")
+        errors = {}
+        if not auth.check_password(pw_path, current):
+            time.sleep(FAILED_LOGIN_DELAY_S)
+            errors["current"] = "wrong password"
+        if len(new) < auth.MIN_PASSWORD_LEN:
+            errors["new"] = f"must be at least {auth.MIN_PASSWORD_LEN} characters"
+        elif new != confirm:
+            errors["confirm"] = "doesn't match"
+        if errors:
+            return render(pw_errors=errors), 400
+        auth.set_password(pw_path, new)
+        session["default_password"] = new == auth.DEFAULT_PASSWORD
+        log.warning("config page password changed from %s", request.remote_addr)
+        return redirect(url_for("show", saved="password"), code=303)
 
     return app
+
+
+def listen_spec(host: str, port: int) -> str:
+    """waitress ``listen=`` value. ``*`` means every IPv4 and IPv6 address."""
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Spyder bridge config web GUI.")
     parser.add_argument("--config", help="config file (default: standard location)")
-    parser.add_argument("--host", default="0.0.0.0", help="address to listen on")
+    parser.add_argument(
+        "--host", default="*",
+        help="address to listen on (default *: all IPv4 and IPv6 addresses)",
+    )
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args(argv)
     setup_logging()
@@ -151,10 +317,14 @@ def main(argv: list[str] | None = None) -> None:
         # Installed on the Pi by install.sh; sturdier than Flask's dev server.
         from waitress import serve
     except ImportError:
-        app.run(host=args.host, port=args.port)
+        # "::" is dual-stack on Linux and macOS.
+        app.run(host="::" if args.host == "*" else args.host, port=args.port)
     else:
-        logging.getLogger(__name__).info("serving on http://%s:%d/", args.host, args.port)
-        serve(app, host=args.host, port=args.port, threads=4)
+        # IPv6 matters: Windows resolves <name>.local to the Pi's fe80::
+        # link-local address first, so an IPv4-only page looks unreachable.
+        listen = listen_spec(args.host, args.port)
+        log.info("serving on %s", listen)
+        serve(app, listen=listen, threads=4)
 
 
 if __name__ == "__main__":

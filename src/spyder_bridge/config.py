@@ -155,25 +155,30 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
 
 
 def save_config(config: Config, path: str | os.PathLike[str] | None = None) -> Path:
-    """Atomically write ``config`` to disk and return the path written.
+    """Atomically write ``config`` to disk and return the path written."""
+    path = resolve_config_path(path)
+    atomic_write_text(path, yaml.safe_dump(config.to_dict(), sort_keys=False), 0o644)
+    return path
+
+
+def atomic_write_text(path: Path, text: str, mode: int) -> None:
+    """Write ``text`` to ``path`` so a power cut leaves the old file or the new one.
 
     Writes to a temp file in the same directory, fsyncs it, then renames it
-    over the target, so a power cut mid-save leaves either the old file or
-    the new one -- never a truncated mix.
+    over the target -- never a truncated mix.
     """
-    path = resolve_config_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    body = yaml.safe_dump(config.to_dict(), sort_keys=False)
-
     fd, tmp_name = tempfile.mkstemp(
         dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
     )
     try:
+        # Set the mode before any content lands, so a secret is never
+        # briefly world-readable.
+        os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(body)
+            f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.chmod(tmp_name, 0o644)
         os.replace(tmp_name, path)
     except BaseException:
         try:
@@ -188,7 +193,6 @@ def save_config(config: Config, path: str | os.PathLike[str] | None = None) -> P
         os.fsync(dir_fd)
     finally:
         os.close(dir_fd)
-    return path
 
 
 def _require_str(cfg: Config, name: str) -> None:

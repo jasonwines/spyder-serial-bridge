@@ -10,7 +10,7 @@ User=spyder-bridge
 Group=spyder-bridge
 Environment=PYTHONPATH=/opt/spyder-bridge/src
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -m spyder_bridge.web --config /etc/spyder-bridge/config.yaml --host 0.0.0.0 --port 80
+ExecStart=/usr/bin/python3 -m spyder_bridge.web --config /etc/spyder-bridge/config.yaml --port 80
 Restart=always
 RestartSec=5
 

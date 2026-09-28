@@ -1,0 +1,15 @@
+// Let the config page's service user change this unit's network settings
+// and hostname through NetworkManager -- and nothing else. Installed by
+// install.sh to /etc/polkit-1/rules.d/.
+polkit.addRule(function (action, subject) {
+    if (subject.user !== "spyder-bridge") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    switch (action.id) {
+    case "org.freedesktop.NetworkManager.settings.modify.system":   // edit eth0 profile
+    case "org.freedesktop.NetworkManager.settings.modify.hostname": // set hostname
+    case "org.freedesktop.NetworkManager.network-control":          // apply changes
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});
