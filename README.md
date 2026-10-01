@@ -1,7 +1,20 @@
 # spyder-serial-bridge
 RS232-to-IP bridge for Christie Spyder video processors — lets serial-only connections from control systems (Crestron, etc.) convert the serial Spyder API commands to network commands with no changes to existing control system programming.
 
-## Install (Raspberry Pi OS, 64-bit)
+## Install from the SD image
+
+Download `spyder-serial-bridge-<version>.img.xz` from the [Releases page](https://github.com/jasonwines/spyder-serial-bridge/releases) and write it to a microSD card (8 GB or larger) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/): *Choose OS → Use Custom*. Skip Imager's "OS customisation" settings; the image is already set up. Works on a Raspberry Pi 3, 4 or 5.
+
+Every unit flashed from the image starts with:
+
+| | |
+| --- | --- |
+| Host name | `spyder-serial-bridge` |
+| Address | DHCP, plus the fallback `192.168.254.254` (see [Connecting to a unit](#connecting-to-a-unit)) |
+| Config page | `http://192.168.254.254/`, password `spyder` |
+| SSH login | `spyder` / `spyder`; each login offers to change it until you do |
+
+## Install by hand (Raspberry Pi OS, 64-bit)
 
 ```sh
 git clone https://github.com/jasonwines/spyder-serial-bridge.git
@@ -50,6 +63,10 @@ What the installer does:
 
 `.local` names depend on the laptop: Windows often won't look them up over a direct cable with no DHCP, so don't rely on them for first contact. The unit also has an automatic link-local address (`169.254.x.x`, shown on the config page) and serves the page over IPv6; these help where the laptop cooperates but aren't a dependable way in.
 
+### Several units on one network
+
+Every unit has the same fallback address, so units sharing a network would clash on it. Set each one up in turn on its own cable, give it its own name and address, and then, connected through that address, use **Turn off fallback address** on its config page. The page won't turn it off while you're using it. It stays off through updates. Turn it back on from the same place, or from a keyboard and monitor on the unit with `sudo spyder-bridge-fallback on`, before the unit goes somewhere it's on its own.
+
 Use a different fallback address with `sudo SPYDER_FALLBACK_IP=10.254.254.254/24 ./install.sh`, or skip it with `sudo SPYDER_FALLBACK_IP= ./install.sh`. Avoid a subnet the site network already uses.
 
 Turn off the link-local address, and undo it on an existing install, with `sudo SPYDER_LINK_LOCAL=0 ./install.sh`.
@@ -65,6 +82,33 @@ sudo ./install.sh --disable-wifi
 This turns Wi-Fi off and deletes every saved Wi-Fi network, so no Wi-Fi password is left on the unit or copied into images. Run it over Ethernet or a local console: an SSH session over Wi-Fi drops when it finishes. To turn Wi-Fi back on later: `sudo nmcli radio wifi on`, then add a network with `sudo nmcli device wifi connect <SSID> --ask`.
 
 Logs: `journalctl -u spyder-bridge -f` (or `-u spyder-bridge-web`).
+
+## Making an SD image
+
+1. Flash Raspberry Pi OS Lite (64-bit) to an **8 GB** card with Raspberry Pi Imager. In its OS customisation, set the login name to **`spyder`**, password `spyder`, and enable SSH. A small card keeps the image small, and the image only fits cards at least as big as this one.
+2. Boot it on Ethernet with internet access, download and unpack the release you want to image, and run the prepare script from inside it over Ethernet (not Wi-Fi):
+
+   ```sh
+   tar xzf spyder-serial-bridge-<version>.tar.gz
+   cd spyder-serial-bridge-<version>
+   sudo ./scripts/prepare-image.sh
+   ```
+
+   It installs that version, resets every setting to its default, removes what must differ between units (SSH host keys, machine ID) or shouldn't ship (Wi-Fi networks, logs, shell history, the home folder), zeroes free space, and powers off. Don't boot the card again before copying it.
+3. Copy the card on a Mac (find the card's disk number with `diskutil list`; here it's `disk4`):
+
+   ```sh
+   diskutil unmountDisk /dev/disk4
+   sudo dd if=/dev/rdisk4 of=spyder-serial-bridge-<version>.img bs=4m status=progress
+   xz -T0 -v spyder-serial-bridge-<version>.img        # brew install xz
+   shasum -a 256 spyder-serial-bridge-<version>.img.xz > spyder-serial-bridge-<version>.img.xz.sha256
+   ```
+
+4. Attach both files to the release:
+
+   ```sh
+   gh release upload <version> spyder-serial-bridge-<version>.img.xz spyder-serial-bridge-<version>.img.xz.sha256
+   ```
 
 ## Development
 

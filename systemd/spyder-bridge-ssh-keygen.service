@@ -1,0 +1,14 @@
+# Creates SSH host keys when there are none, i.e. on the first boot of a
+# unit flashed from an SD image (prepare-image.sh deletes them, so every
+# unit gets its own).
+[Unit]
+Description=Create SSH host keys if missing
+ConditionPathExistsGlob=!/etc/ssh/ssh_host_*_key
+Before=ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=multi-user.target

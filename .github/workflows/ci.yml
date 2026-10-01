@@ -28,7 +28,7 @@ jobs:
       - name: shellcheck install.sh
         run: shellcheck install.sh
       - name: shellcheck helper scripts
-        run: shellcheck scripts/*.sh
+        run: shellcheck scripts/*.sh scripts/spyder-bridge-fallback
       - name: verify systemd units
         run: |
           # Units point at the installed helper, so put it where they expect.

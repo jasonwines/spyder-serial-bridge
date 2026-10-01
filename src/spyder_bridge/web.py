@@ -21,7 +21,7 @@ import threading
 import time
 from dataclasses import fields
 from datetime import timedelta
-from ipaddress import IPv4Interface
+from ipaddress import IPv4Interface, IPv6Address, ip_address
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
@@ -44,6 +44,7 @@ from .config import (
 )
 from .logsetup import setup_logging
 from .network import (
+    FALLBACK_OFF_FILENAME,
     NetworkError,
     NetworkSettings,
     NmcliBackend,
@@ -157,7 +158,8 @@ def create_app(
     app.jinja_env.globals["version"] = version if version is not None else read_version()
     path = resolve_config_path(config_path)
     pw_path = auth.password_path(path)
-    net = network if network is not None else NmcliBackend()
+    net = network if network is not None else NmcliBackend(
+        off_file=path.parent / FALLBACK_OFF_FILENAME)
 
     def network_status() -> tuple[Any, str | None]:
         try:
@@ -283,9 +285,34 @@ def create_app(
             settings=settings,
             hostname_changed=settings.hostname != before.hostname,
             address_changed=address_changed,
-            fallback_ip=str(fallback.ip) if fallback else None,
+            fallback_ip=str(fallback.ip) if fallback and net.fallback_enabled else None,
             fallback_net=str(fallback.network) if fallback else None,
         )
+
+    @app.post("/network/fallback")
+    def set_fallback() -> Any:
+        enable = request.form.get("fallback") == "on"
+        if not enable:
+            # Only from a working site address, so turning it off can't strand
+            # the tech who's using it.
+            try:
+                status = net.status()
+            except NetworkError as e:
+                return render(network_save_error=str(e)), 500
+            if net.fallback is not None and _connected_via(request.remote_addr, net.fallback):
+                return render(fallback_error=(
+                    "You're connected through the fallback address. Connect through "
+                    "this unit's DHCP or static address, then turn it off.")), 409
+            if not status.has_site_address:
+                return render(fallback_error=(
+                    "This unit has no DHCP or static address right now, so the "
+                    "fallback is the only dependable way in. It stays on.")), 409
+        try:
+            net.set_fallback(enable)
+        except (NetworkError, OSError) as e:
+            return render(network_save_error=str(e)), 500
+        schedule(NETWORK_APPLY_DELAY_S, net.activate)
+        return redirect(url_for("show", saved="fallback-on" if enable else "fallback-off"), code=303)
 
     @app.post("/password")
     def change_password() -> Any:
@@ -308,6 +335,17 @@ def create_app(
         return redirect(url_for("show", saved="password"), code=303)
 
     return app
+
+
+def _connected_via(remote_addr: str | None, fallback: IPv4Interface) -> bool:
+    """Whether a client at ``remote_addr`` is on the fallback network."""
+    try:
+        ip = ip_address(remote_addr or "")
+    except ValueError:
+        return False
+    if isinstance(ip, IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip in fallback.network
 
 
 def listen_spec(host: str, port: int) -> str:

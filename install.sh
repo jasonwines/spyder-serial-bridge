@@ -23,6 +23,8 @@
 # alongside DHCP, so a tech can always reach the config page with a laptop
 # cabled straight to the unit. Override with SPYDER_FALLBACK_IP=addr/prefix,
 # or set it empty to skip: sudo SPYDER_FALLBACK_IP= ./install.sh
+# If it's been turned off on the config page (for units sharing a network)
+# it's kept off; turn it back on there or with: sudo spyder-bridge-fallback on
 #
 # And enables an IPv4 link-local (169.254.x.x) address on eth0. It helps
 # laptops that self-assign 169.254.x.x reach the unit directly, but isn't
@@ -40,6 +42,8 @@ CONF_FILE=$CONF_DIR/config.yaml
 SERVICE_USER=spyder-bridge
 SERVICES=(spyder-bridge.service spyder-bridge-web.service)
 HOSTNAME_SYNC=spyder-bridge-hostname-sync
+SSH_KEYGEN=spyder-bridge-ssh-keygen.service
+FALLBACK_OFF=$CONF_DIR/fallback-off  # written by the config page
 FALLBACK_IP=${SPYDER_FALLBACK_IP-192.168.254.254/24}
 LINK_LOCAL=${SPYDER_LINK_LOCAL-1}
 ETH_DEV=eth0
@@ -120,6 +124,11 @@ disable_wifi() {
     echo "Wi-Fi radio off (turn back on with: sudo nmcli radio wifi on)"
 }
 
+has_fallback() {
+    nmcli -g ipv4.addresses connection show "$1" | tr ',' '\n' \
+        | sed 's/^ *//' | grep -qxF "$FALLBACK_IP"
+}
+
 configure_first_contact() {
     if ! command -v nmcli >/dev/null || ! systemctl is-active -q NetworkManager; then
         warn "NetworkManager not running; fallback IP and link-local not configured"
@@ -129,8 +138,13 @@ configure_first_contact() {
     con=$(eth_connection)
     if [[ -z $FALLBACK_IP ]]; then
         echo "fallback IP skipped (SPYDER_FALLBACK_IP is empty)"
-    elif nmcli -g ipv4.addresses connection show "$con" | tr ',' '\n' \
-            | sed 's/^ *//' | grep -qxF "$FALLBACK_IP"; then
+    elif [[ -e $FALLBACK_OFF ]]; then
+        if has_fallback "$con"; then
+            nmcli connection modify "$con" -ipv4.addresses "$FALLBACK_IP"
+        fi
+        echo "fallback $FALLBACK_IP is turned off on this unit; keeping it off"
+        echo "(turn it back on from the config page or with: sudo spyder-bridge-fallback on)"
+    elif has_fallback "$con"; then
         echo "$FALLBACK_IP already on '$con'"
     else
         nmcli connection modify "$con" +ipv4.addresses "$FALLBACK_IP"
@@ -238,6 +252,11 @@ echo "$version" > "$APP_DIR/VERSION"
 # whatever network settings a tech picks. Empty means no fallback.
 echo "$FALLBACK_IP" > "$APP_DIR/FALLBACK_IP"
 install -o root -g root -m 755 "$REPO_DIR/scripts/hostname-sync.sh" "$APP_DIR/hostname-sync.sh"
+install -o root -g root -m 755 "$REPO_DIR/scripts/spyder-bridge-fallback" /usr/local/sbin/spyder-bridge-fallback
+# Offers to change an SD image's default login password at each login
+# until it's changed. Does nothing on units set up by hand.
+install -o root -g root -m 644 "$REPO_DIR/scripts/ssh-default-password.sh" \
+    /etc/profile.d/spyder-bridge-ssh-default-password.sh
 
 log "Setting up config in $CONF_DIR"
 # The service user owns the directory so the web GUI can do atomic
@@ -276,12 +295,13 @@ log "Installing systemd services"
 for svc in "${SERVICES[@]}"; do
     install -o root -g root -m 644 "$REPO_DIR/systemd/$svc" "/etc/systemd/system/$svc"
 done
-for unit in "$HOSTNAME_SYNC.service" "$HOSTNAME_SYNC.path"; do
+for unit in "$HOSTNAME_SYNC.service" "$HOSTNAME_SYNC.path" "$SSH_KEYGEN"; do
     install -o root -g root -m 644 "$REPO_DIR/systemd/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
 systemctl enable "${SERVICES[@]}"
 systemctl enable --now "$HOSTNAME_SYNC.path"
+systemctl enable "$SSH_KEYGEN"  # only does anything when host keys are missing
 systemctl restart "${SERVICES[@]}"
 
 sleep 2
