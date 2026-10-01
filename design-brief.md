@@ -8,8 +8,9 @@ existing serial control programming.
 
 Repo: https://github.com/jasonwines/spyder-serial-bridge (public, MIT licensed)
 
-**Status (2026-09-28):** build steps 1–6 are done and merged to `main`, plus
-a password-protected config page with network settings. The whole path —
+**Status (2026-10-01):** v1.0.0. Build steps 1–6 are done and merged to
+`main`, plus a password-protected config page with network settings and
+manual updates from tagged releases. The whole path —
 control-system serial → Pi → UDP → Spyder S and back — and the config page's
 network settings have been tested on real hardware. See [What's been tested](#whats-been-tested) and
 [Open items](#open-items).
@@ -165,9 +166,13 @@ Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
     DHCP/static choice, so a static address survives updates;
   - installs the polkit rule, the hostname helper, and the services, then
     enables and restarts them.
-- **Update**: `git pull && sudo ./install.sh`. Config, password and network
-  settings are kept.
-- **Options**: `--reset-password`; `--disable-wifi` (deletes every saved
+- **Update**: `git pull && sudo ./install.sh`, or unpack a release tarball
+  and run its `install.sh` (see Distribution). Config, password and network
+  settings are kept. A different version keeps the replaced app code as
+  `src.prev`; re-running the same version leaves it alone.
+- **Options**: `--reset-password`; `--rollback` (swaps `src.prev` and
+  `VERSION.prev` back in and restarts the services, nothing else; run again
+  to undo); `--disable-wifi` (deletes every saved
   Wi-Fi network and turns the radio off — field units are wired only, and no
   Wi-Fi password should ship on a unit or in an SD image; runs last so an SSH
   session over Wi-Fi drops only once the install is done);
@@ -180,14 +185,30 @@ Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
   shellcheck of the install and helper scripts, and `systemd-analyze verify`
   of the units.
 
-## Distribution plan (not yet built — for later)
-- Periodically bake a ready-to-flash SD image *from* the install script for
-  less technical customers. Run `--disable-wifi` and reset the password on
-  the source unit first.
-- Update mechanism: GitHub Releases. The bridge periodically (or on a
-  GUI-triggered "check for updates" click) checks the latest release tag via
-  GitHub's API and pulls it in if newer. `/opt/spyder-bridge/VERSION` already
-  records the installed version.
+## Distribution
+- **Updates are strictly manual** (decided 2026-10-01). The API never
+  changes, so updates should be rare: most likely a site-specific security
+  change. No update checker, no in-page updater, no GitHub calls from units
+  (field units are often on networks with no internet access anyway).
+- **Releases**: pushing a `v*` tag runs `.github/workflows/release.yml`:
+  tests, then a `git archive` tarball with a `VERSION` file stamped in,
+  plus a `.sha256`, published as a GitHub Release. `install.sh` records
+  `VERSION` (or `git describe` in a clone) to `/opt/spyder-bridge/VERSION`,
+  and the config page shows it.
+- **Updating a unit**: `git pull && sudo ./install.sh` where there's a clone
+  and internet access; otherwise copy the tarball over (e.g. `scp` to the
+  fallback IP), unpack, `sudo ./install.sh`. `--rollback` if it misbehaves.
+- **Site-specific changes go on branches** (option chosen over config flags,
+  2026-10-01; few or none are expected): branch `site/<name>` from the
+  release it builds on, tag `vX.Y.Z-<name>.N`. Tags containing `-` are
+  published as pre-releases, so GitHub's Latest is always mainline. Fixes
+  needed on both have to be carried across by hand.
+- **SD image (not yet built)**: periodically bake a ready-to-flash image for
+  less technical customers. Don't just copy a used unit: SSH host keys,
+  `/etc/machine-id`, the Imager login account, home-directory contents and
+  the host name would be shared by every unit. Build it by script or
+  generalize those on first boot. Run `--disable-wifi` and reset the
+  password on the source first.
 - Public repo, free to use, MIT licensed.
 - Local kiosk-mode (monitor/keyboard/mouse) access was discussed and
   explicitly deferred — not in v1 scope, but the plan (a full desktop +
@@ -228,16 +249,20 @@ PuTTY, Spyder S at `192.168.55.77`), 2026-09-28:
 | Host name change from the config page | Works; found at the new `.local` name |
 | Update run (`sudo ./install.sh`) after those changes | Keeps the static address and password |
 | Switching back to DHCP | Works; gets a lease again |
+| Update to the v1.0.0 release changes (2026-10-01) | Works; bridge and config page as before |
+| Unplug and replug the serial cable (2026-10-01) | Bridge recovers |
+| Every baud rate on the config page (2026-10-01) | All work |
 
-Automated: 158 pytest tests. They include full serial → bridge → UDP →
+Automated: 160 pytest tests. They include full serial → bridge → UDP →
 fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
 `nmcli` checking the exact commands sent and parsing its output formats.
 
 ## Open items
 - **Timeout tuning**: check slow commands such as image loads against the
   500 ms default.
-- **USB replug**: unplug and replug the adapter; the bridge should recover
-  within a few seconds.
+- **USB adapter replug**: the serial cable replug is tested; pulling the USB
+  adapter itself (the port disappears, systemd restarts the bridge every
+  5 s) is still to check, if that wasn't what was tested.
 - **Query commands** that return data: confirm the reply format.
 - **Late replies**: a reply arriving after its timeout but while the next
   command is in flight is taken as that command's answer; the protocol has no
@@ -247,7 +272,9 @@ fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
   timeouts, serial port open). Would help field diagnosis.
 - **Read-only root**: `/etc/spyder-bridge` and `/etc/NetworkManager/` (network
   settings) must stay writable.
-- **Update checker and SD image baking** (see Distribution plan).
+- **SD image baking** (see Distribution).
+- **Release tarball install**: install from the v1.0.0 release tarball on a
+  unit with no internet access and confirm the page shows `v1.0.0`.
 
 ## Build order (all done)
 1. ~~Config loading (baud/port/timeout/IP), no hardware dependency.~~

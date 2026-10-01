@@ -5,9 +5,19 @@
 #   sudo ./install.sh --reset-password   same, and reset the config page password
 #   sudo ./install.sh --disable-wifi     same, and turn off Wi-Fi and delete saved
 #                                        Wi-Fi networks (for units going to site)
+#   sudo ./install.sh --rollback         go back to the version installed before
+#                                        this one (run again to undo)
 #
-# Safe to re-run: this is also the update path (git pull && sudo ./install.sh).
-# An existing /etc/spyder-bridge/config.yaml is never overwritten.
+# Run from a git clone or an unpacked release tarball. Safe to re-run: this
+# is also the update path (git pull, or unpack a newer release, then
+# sudo ./install.sh). An existing /etc/spyder-bridge/config.yaml is never
+# overwritten.
+#
+# Updating keeps the replaced version's app code, and --rollback swaps it
+# back in and restarts the services. Only the app code goes back: config,
+# password, network settings, services and the polkit rule stay as they
+# are. A setting saved that the older version doesn't know makes its
+# bridge refuse the config file; re-save from the config page to fix.
 #
 # Also adds a static fallback address (default 192.168.254.254/24) on eth0
 # alongside DHCP, so a tech can always reach the config page with a laptop
@@ -36,6 +46,7 @@ ETH_DEV=eth0
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RESET_PASSWORD=0
 DISABLE_WIFI=0
+ROLLBACK=0
 
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -61,6 +72,27 @@ eth_connection() {
     nmcli connection add type ethernet ifname "$ETH_DEV" \
         con-name "Wired connection 1" ipv4.method auto >/dev/null
     echo "Wired connection 1"
+}
+
+# Swap the previous app code back in. Nothing else changes.
+rollback() {
+    local current previous
+    [[ -d $APP_DIR/src.prev ]] || die "no previous version in $APP_DIR to roll back to"
+    current=$(cat "$APP_DIR/VERSION" 2>/dev/null || echo unknown)
+    previous=$(cat "$APP_DIR/VERSION.prev" 2>/dev/null || echo unknown)
+    log "Rolling back from $current to $previous"
+    rm -rf "$APP_DIR/src.swap"
+    mv "$APP_DIR/src" "$APP_DIR/src.swap"
+    mv "$APP_DIR/src.prev" "$APP_DIR/src"
+    mv "$APP_DIR/src.swap" "$APP_DIR/src.prev"
+    echo "$previous" > "$APP_DIR/VERSION"
+    echo "$current" > "$APP_DIR/VERSION.prev"
+    systemctl restart "${SERVICES[@]}"
+    sleep 2
+    for svc in "${SERVICES[@]}"; do
+        printf '  %-28s %s\n' "$svc" "$(systemctl is-active "$svc" || true)"
+    done
+    printf '\nNow running %s. To go back to %s: sudo %s --rollback\n' "$previous" "$current" "$0"
 }
 
 # Fallback IP and link-local on $ETH_DEV, alongside DHCP.
@@ -130,17 +162,31 @@ for arg in "$@"; do
     case $arg in
         --reset-password) RESET_PASSWORD=1 ;;
         --disable-wifi) DISABLE_WIFI=1 ;;
+        --rollback) ROLLBACK=1 ;;
         -h | --help) sed -n '2,/^set -euo/{/^set/d;s/^# \{0,1\}//;p;}' "$0"; exit 0 ;;
         *) die "unknown option: $arg (see --help)" ;;
     esac
 done
 
 [[ $EUID -eq 0 ]] || die "run as root: sudo $0"
+if [[ $ROLLBACK == 1 ]]; then
+    [[ $# -eq 1 ]] || die "--rollback can't be combined with other options"
+    rollback
+    exit 0
+fi
 if ! command -v apt-get >/dev/null || ! command -v systemctl >/dev/null; then
     die "needs a Debian-based system with systemd (Raspberry Pi OS)"
 fi
 [[ -f $REPO_DIR/src/spyder_bridge/__main__.py ]] \
-    || die "run from a checkout of the spyder-serial-bridge repo"
+    || die "run from the spyder-serial-bridge folder (a git clone or an unpacked release)"
+
+# Release tarballs carry a VERSION file (stamped by the release workflow);
+# a git clone is described from its tags.
+if [[ -f $REPO_DIR/VERSION ]]; then
+    version=$(<"$REPO_DIR/VERSION")
+else
+    version=$(git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo unknown)
+fi
 
 log "Installing system packages"
 # Distro packages rather than pip: no virtualenv to manage, and they get
@@ -165,7 +211,7 @@ usermod -a -G dialout "$SERVICE_USER"  # serial port access
 log "Installing application to $APP_DIR"
 install -d -o root -g root -m 755 "$APP_DIR"
 # Stage then swap, so a failed copy never leaves a half-updated tree.
-rm -rf "$APP_DIR/src.new" "$APP_DIR/src.old"
+rm -rf "$APP_DIR/src.new" "$APP_DIR/src.old" "$APP_DIR/src.swap"
 cp -R "$REPO_DIR/src" "$APP_DIR/src.new"
 find "$APP_DIR/src.new" -name __pycache__ -type d -prune -exec rm -rf {} +
 # Precompile: the services can't write bytecode to a read-only /opt, and
@@ -173,11 +219,20 @@ find "$APP_DIR/src.new" -name __pycache__ -type d -prune -exec rm -rf {} +
 python3 -m compileall -q "$APP_DIR/src.new"
 chown -R root:root "$APP_DIR/src.new"
 chmod -R u=rwX,go=rX "$APP_DIR/src.new"
-[[ -d $APP_DIR/src ]] && mv "$APP_DIR/src" "$APP_DIR/src.old"
+installed=$(cat "$APP_DIR/VERSION" 2>/dev/null || echo unknown)
+if [[ -d $APP_DIR/src && $installed != "$version" ]]; then
+    # A different version: keep the one being replaced for --rollback.
+    rm -rf "$APP_DIR/src.prev"
+    mv "$APP_DIR/src" "$APP_DIR/src.prev"
+    echo "$installed" > "$APP_DIR/VERSION.prev"
+    echo "kept $installed for --rollback"
+elif [[ -d $APP_DIR/src ]]; then
+    # Same version re-run (e.g. --reset-password): leave src.prev alone.
+    mv "$APP_DIR/src" "$APP_DIR/src.old"
+fi
 mv "$APP_DIR/src.new" "$APP_DIR/src"
 rm -rf "$APP_DIR/src.old"
-# Record what's installed, for support and the future update checker.
-version=$(git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo unknown)
+# Record what's installed; the config page shows it.
 echo "$version" > "$APP_DIR/VERSION"
 # The config page reads this to label the fallback address and keep it on
 # whatever network settings a tech picks. Empty means no fallback.

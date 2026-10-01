@@ -219,3 +219,6 @@ __marimo__/
 
 # Local dev config (see README)
 dev.yaml
+
+# Stamped into release tarballs by .github/workflows/release.yml
+/VERSION
