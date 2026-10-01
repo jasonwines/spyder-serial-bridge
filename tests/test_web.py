@@ -44,7 +44,7 @@ def anon(path, nmcli, scheduled):
     auth.set_password(auth.password_path(path), PASSWORD)
     app = create_app(
         path,
-        network=NmcliBackend(fallback=FALLBACK, runner=nmcli),
+        network=NmcliBackend(fallback=FALLBACK, runner=nmcli, off_file=path.parent / "fallback-off"),
         schedule=lambda delay, fn: scheduled.append((delay, fn)),
     )
     app.testing = True
@@ -215,6 +215,66 @@ def test_network_unavailable_is_reported(anon, path):
     html = c.get("/").get_data(as_text=True)
     assert "Network settings aren't available: nmcli not found" in html
     assert "Save bridge settings" in html  # rest of the page still works
+
+
+# ---------------------------------------------------------------- fallback
+
+def test_turn_fallback_off_from_site_address(client, nmcli, path, scheduled):
+    assert "Turn off fallback address" in client.get("/").get_data(as_text=True)
+    resp = client.post("/network/fallback", data={"fallback": "off"},
+                       environ_base={"REMOTE_ADDR": "192.168.55.9"})
+    assert resp.status_code == 303 and "saved=fallback-off" in resp.location
+    assert nmcli.props["ipv4.addresses"] == ""
+    assert (path.parent / "fallback-off").exists()
+    [(_, fn)] = scheduled
+    fn()
+    assert nmcli.calls[-1] == ["device", "reapply", "eth0"]
+    html = client.get("/?saved=fallback-off").get_data(as_text=True)
+    assert "Fallback address turned off" in html
+    assert "Turn on fallback address (192.168.254.254)" in html
+
+
+def test_cannot_turn_fallback_off_while_using_it(client, nmcli, path, scheduled):
+    resp = client.post("/network/fallback", data={"fallback": "off"},
+                       environ_base={"REMOTE_ADDR": "192.168.254.1"})
+    assert resp.status_code == 409
+    assert "connected through the fallback address" in resp.get_data(as_text=True)
+    assert not (path.parent / "fallback-off").exists() and scheduled == []
+    assert nmcli.props["ipv4.addresses"] == "192.168.254.254/24"
+
+
+def test_cannot_turn_fallback_off_without_site_address(client, nmcli, path):
+    nmcli.live = ["192.168.254.254/24", "169.254.7.9/16"]
+    resp = client.post("/network/fallback", data={"fallback": "off"},
+                       environ_base={"REMOTE_ADDR": "169.254.1.2"})
+    assert resp.status_code == 409
+    assert "no DHCP or static address" in resp.get_data(as_text=True)
+    assert not (path.parent / "fallback-off").exists()
+
+
+def test_turn_fallback_back_on(client, nmcli, path, scheduled):
+    client.post("/network/fallback", data={"fallback": "off"})
+    resp = client.post("/network/fallback", data={"fallback": "on"},
+                       environ_base={"REMOTE_ADDR": "169.254.1.2"})
+    assert resp.status_code == 303
+    assert nmcli.props["ipv4.addresses"] == "192.168.254.254/24"
+    assert not (path.parent / "fallback-off").exists()
+
+
+def test_static_save_with_fallback_off_promises_nothing(client, nmcli):
+    client.post("/network/fallback", data={"fallback": "off"})
+    html = client.post("/network", data=net_form(mode="static", address="192.168.55.40")).get_data(as_text=True)
+    assert nmcli.props["ipv4.addresses"] == "192.168.55.40/24"
+    assert "http://192.168.254.254/" not in html
+    assert "fallback address is off" in html
+
+
+@pytest.mark.parametrize("addr, via", [
+    ("192.168.254.7", True), ("::ffff:192.168.254.7", True),
+    ("192.168.55.9", False), ("fe80::1", False), (None, False), ("junk", False),
+])
+def test_connected_via(addr, via):
+    assert web._connected_via(addr, FALLBACK) is via
 
 
 # ---------------------------------------------------------------- password

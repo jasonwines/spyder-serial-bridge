@@ -30,6 +30,10 @@
   <div class="banner ok" role="status">Bridge settings saved. The bridge applies them within a few seconds.</div>
   {% elif saved == 'password' %}
   <div class="banner ok" role="status">Password changed.</div>
+  {% elif saved == 'fallback-off' %}
+  <div class="banner ok" role="status">Fallback address turned off. It goes away in a few seconds and stays off through updates.</div>
+  {% elif saved == 'fallback-on' %}
+  <div class="banner ok" role="status">Fallback address turned on. It's back in a few seconds.</div>
   {% endif %}
 
   {# ---------------------------------------------------------------- bridge #}
@@ -181,10 +185,37 @@
       <tr><th scope="row">DNS</th><td>{{ status.dns | join(', ') if status.dns else 'None' }}</td></tr>
     </table>
     <div class="hint" style="margin-bottom:1rem">
-      {% if status.fallback %}The Fallback address is always on, so a laptop cabled straight to the unit can reach it whatever else is set here.{% endif %}
       Link-local is an automatic 169.254.x.x address; it can help a laptop cabled directly, but the fallback address is the dependable way in.
     </div>
   </fieldset>
+
+  {% if status.fallback %}
+  <fieldset id="fallback">
+    <legend>Fallback address</legend>
+    {% if fallback_error %}
+    <div class="banner err" role="alert">{{ fallback_error }}</div>
+    {% endif %}
+    <form method="post" action="{{ url_for('set_fallback') }}#fallback">
+    {% if status.fallback_enabled %}
+      <p>
+        <strong>On:</strong> {{ status.fallback.split('/')[0] }}, so a laptop cabled straight to the unit can reach it whatever else is set here.
+        Every unit has the same fallback address, so turn it off on each unit that shares a network with another one.
+      </p>
+      <p class="hint">
+        With it off, a wrong address setting can only be fixed through the link-local address,
+        a keyboard and monitor on the unit (<code>sudo spyder-bridge-fallback on</code>), or by reflashing.
+        It can only be turned off while you're connected through this unit's DHCP or static address.
+      </p>
+      <input type="hidden" name="fallback" value="off">
+      <button type="submit" class="quiet">Turn off fallback address</button>
+    {% else %}
+      <p><strong>Off.</strong> Turn it back on before moving this unit to a network where it's the only bridge, or before handing it over.</p>
+      <input type="hidden" name="fallback" value="on">
+      <button type="submit" class="quiet">Turn on fallback address ({{ status.fallback.split('/')[0] }})</button>
+    {% endif %}
+    </form>
+  </fieldset>
+  {% endif %}
 
   <form method="post" action="{{ url_for('save_network') }}" id="network-form">
     <fieldset>

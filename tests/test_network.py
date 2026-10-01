@@ -69,8 +69,17 @@ class FakeNmcli:
         raise AssertionError(f"unexpected nmcli call: {args}")
 
 
-def backend(fake):
-    return NmcliBackend(fallback=FALLBACK, runner=fake)
+@pytest.fixture(autouse=True)
+def off_file(tmp_path, monkeypatch):
+    """Keep every backend away from the real /etc/spyder-bridge."""
+    path = tmp_path / "fallback-off"
+    monkeypatch.setattr("spyder_bridge.network.FALLBACK_OFF_FILE", path)
+    return path
+
+
+def backend(fake, off_file=None):
+    kw = {"off_file": off_file} if off_file else {}
+    return NmcliBackend(fallback=FALLBACK, runner=fake, **kw)
 
 
 # ------------------------------------------------------------------ status
@@ -149,6 +158,62 @@ def test_no_fallback_configured():
     b.fallback = None
     b.save(NetworkSettings("spyder-serial-bridge", "static", "10.1.1.1", 24))
     assert fake.props["ipv4.addresses"] == "10.1.1.1/24"
+
+
+# ---------------------------------------------------------------- fallback
+
+def test_turn_fallback_off_and_on(off_file):
+    fake = FakeNmcli(method="manual", addresses=("10.0.0.5/16", "192.168.254.254/24"))
+    b = backend(fake, off_file)
+    assert b.fallback_enabled and b.status().fallback_enabled
+    b.set_fallback(False)
+    assert fake.props["ipv4.addresses"] == "10.0.0.5/16"
+    assert off_file.exists() and not b.fallback_enabled
+    assert not b.status().fallback_enabled
+    b.set_fallback(True)
+    assert fake.props["ipv4.addresses"] == "10.0.0.5/16, 192.168.254.254/24"
+    assert not off_file.exists() and b.fallback_enabled
+
+
+def test_fallback_off_in_dhcp_leaves_no_addresses(off_file):
+    fake = FakeNmcli()
+    backend(fake, off_file).set_fallback(False)
+    assert fake.props["ipv4.addresses"] == ""
+
+
+def test_save_leaves_fallback_out_while_off(off_file):
+    fake = FakeNmcli()
+    b = backend(fake, off_file)
+    b.set_fallback(False)
+    b.save(NetworkSettings("spyder-serial-bridge", "static", "192.168.55.40", 24))
+    assert fake.props["ipv4.addresses"] == "192.168.55.40/24"
+
+
+def test_failed_nmcli_leaves_fallback_on(off_file):
+    fake = FakeNmcli()
+
+    def failing(args):
+        if args[:2] == ["connection", "modify"]:
+            raise NetworkError("nope")
+        return fake(args)
+
+    b = backend(failing, off_file)
+    with pytest.raises(NetworkError):
+        b.set_fallback(False)
+    assert not off_file.exists()
+
+
+def test_set_fallback_needs_one_configured(off_file):
+    b = NmcliBackend(fallback=None, runner=FakeNmcli(addresses=()), off_file=off_file)
+    b.fallback = None
+    with pytest.raises(NetworkError):
+        b.set_fallback(True)
+
+
+def test_has_site_address():
+    assert backend(FakeNmcli()).status().has_site_address
+    fake = FakeNmcli(live=("192.168.254.254/24", "169.254.7.9/16"))
+    assert not backend(fake).status().has_site_address
 
 
 def test_activate_falls_back_to_connection_up():
@@ -242,3 +307,26 @@ def test_parse_mask(text, prefix):
 def test_prefix_to_mask():
     assert prefix_to_mask(24) == "255.255.255.0"
     assert prefix_to_mask(22) == "255.255.252.0"
+
+
+# --------------------------------------------------- spyder-bridge-fallback
+
+def test_fallback_command(monkeypatch, capsys, off_file):
+    from spyder_bridge import network
+    fake = FakeNmcli()
+    monkeypatch.setattr(network, "NmcliBackend", lambda: backend(fake, off_file))
+    monkeypatch.setattr(network.os, "geteuid", lambda: 0)
+    network.main(["off"])
+    assert off_file.exists() and fake.calls[-1] == ["device", "reapply", "eth0"]
+    assert "192.168.254.254/24: off" in capsys.readouterr().out
+    network.main(["on"])
+    assert not off_file.exists() and fake.props["ipv4.addresses"] == "192.168.254.254/24"
+    network.main(["status"])
+    assert capsys.readouterr().out.strip().endswith(": on")
+
+
+def test_fallback_command_needs_root(monkeypatch):
+    from spyder_bridge import network
+    monkeypatch.setattr(network.os, "geteuid", lambda: 1000)
+    with pytest.raises(SystemExit, match="run as root"):
+        network.main(["off"])

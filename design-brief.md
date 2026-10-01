@@ -102,8 +102,10 @@ Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
     Link-local**, gateway, DNS, cable-unplugged warning) and **Change Host
     Name** / **Change Address** (DHCP, or static address, mask, optional
     gateway and DNS, all validated). The fallback and link-local addresses
-    are always kept, so a bad address can't lock anyone out. Address changes
-    apply 2 s after the page saying where to reconnect has been sent.
+    are kept whatever is chosen, so a bad address can't lock anyone out.
+    Address changes apply 2 s after the page saying where to reconnect has
+    been sent.
+  - *Fallback address* — on/off switch (see First contact).
   - *Password* — change it (8+ characters).
 - Serves on IPv4 **and IPv6**: Windows resolves `<name>.local` to the Pi's
   `fe80::` address first, and an IPv4-only page looked unreachable.
@@ -129,8 +131,13 @@ Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
 - Hostname changes: a root-owned path unit watches `/etc/hostname` and runs a
   fixed script that updates `/etc/hosts` and restarts Avahi. The script
   refuses names outside `[a-z0-9-]`.
-- **Known risk**: until the default password is changed, anyone on a unit's
-  network can log in and change its address.
+- **SSH on image units**: login `spyder` / `spyder`, public like the config
+  page default. Each login shell offers "Change it now? [y/N]" until it's
+  changed through that prompt (a marker file in the login's home; N asks
+  again next time). Not forced: accepted for the
+  environments these units go into (decided 2026-10-01).
+- **Known risk**: until the default passwords are changed, anyone on a
+  unit's network can log in and change its address, and over SSH gets root.
 
 ## First contact and discovery
 - **Fixed fallback IP `192.168.254.254/24`** on `eth0`, alongside DHCP or a
@@ -139,6 +146,15 @@ Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
   is the documented way in for first setup and goes on the unit's label.**
   DHCP retries forever (`dhcp-timeout infinity`), so the connection — and the
   fallback address with it — stays up when no DHCP server is present.
+- **Turning the fallback off** (added 2026-10-01): every unit has the same
+  fallback, so units sharing a network clash on it. The config page can
+  turn it off, but only while the tech is connected through a live DHCP or
+  static address (refused from the fallback subnet, or with no site
+  address). A `fallback-off` marker in `/etc/spyder-bridge` keeps it off
+  through `install.sh` runs. Back on from the page or, as root on the
+  console or over SSH, `spyder-bridge-fallback on`. While it's off, a bad
+  address can only be fixed through link-local, a console, or a reflash;
+  the page and the "settings saved" page say so.
 - **IPv4 link-local (`169.254.x.x`)** is also enabled. Tested: a laptop on
   automatic settings, cabled directly, reaches the unit at its 169.254
   address. But that address is picked automatically, so it can't be printed.
@@ -164,8 +180,11 @@ Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
     the default password only if none exists;
   - configures the fallback IP and link-local on `eth0` without touching the
     DHCP/static choice, so a static address survives updates;
-  - installs the polkit rule, the hostname helper, and the services, then
-    enables and restarts them.
+  - installs the polkit rule, the hostname helper, `spyder-bridge-fallback`
+    in `/usr/local/sbin`, the SSH default-password prompt in
+    `/etc/profile.d`, the services, and a oneshot that creates SSH host keys
+    if there are none (first boot of an image), then enables and restarts
+    them.
 - **Update**: `git pull && sudo ./install.sh`, or unpack a release tarball
   and run its `install.sh` (see Distribution). Config, password and network
   settings are kept. A different version keeps the replaced app code as
@@ -203,12 +222,21 @@ Single-flight request/response, as designed (`bridge.py`, `udp_client.py`):
   release it builds on, tag `vX.Y.Z-<name>.N`. Tags containing `-` are
   published as pre-releases, so GitHub's Latest is always mainline. Fixes
   needed on both have to be carried across by hand.
-- **SD image (not yet built)**: periodically bake a ready-to-flash image for
-  less technical customers. Don't just copy a used unit: SSH host keys,
-  `/etc/machine-id`, the Imager login account, home-directory contents and
-  the host name would be shared by every unit. Build it by script or
-  generalize those on first boot. Run `--disable-wifi` and reset the
-  password on the source first.
+- **SD image** (decided 2026-10-01; built, not yet tested on hardware): a
+  ready-to-flash `.img.xz` attached to a release, flashed by customers with
+  Raspberry Pi Imager. Made by preparing a unit, not built by script (pi-gen
+  etc.): flash Pi OS Lite 64-bit to an 8 GB card with login `spyder`, run
+  `scripts/prepare-image.sh` from the unpacked release, copy the card with
+  `dd`, `xz` it. The script installs that release (`--reset-password
+  --disable-wifi`), drops the rollback copy, resets bridge config, fallback
+  (on), network (DHCP, stored but not applied so SSH survives) and host name
+  (`spyder-serial-bridge`, shared by every unit, by choice), sets the login
+  password and SSH on, deletes SSH host keys, empties `/etc/machine-id`
+  (it seeds the DHCP client ID, so units would otherwise fight over a
+  lease), clears apt caches, logs and the home folder, zeroes free space,
+  and powers off from a transient unit after killing the login shell so
+  its history isn't written back. No root-filesystem expansion on first
+  boot: units get the source card's 8 GB layout whatever card they're on.
 - Public repo, free to use, MIT licensed.
 - Local kiosk-mode (monitor/keyboard/mouse) access was discussed and
   explicitly deferred — not in v1 scope, but the plan (a full desktop +
@@ -270,7 +298,11 @@ fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
   timeouts, serial port open). Would help field diagnosis.
 - **Read-only root**: `/etc/spyder-bridge` and `/etc/NetworkManager/` (network
   settings) must stay writable.
-- **SD image baking** (see Distribution).
+- **SD image**: run `prepare-image.sh` on hardware, flash the result to a
+  second card and check first boot (new SSH keys and machine ID, DHCP,
+  fallback, config page, SSH prompt).
+- **Fallback switch**: test off/on from the config page, that it stays off
+  through `install.sh`, and `spyder-bridge-fallback on` from a console.
 
 ## Build order (all done)
 1. ~~Config loading (baud/port/timeout/IP), no hardware dependency.~~

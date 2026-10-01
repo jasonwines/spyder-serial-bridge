@@ -1,0 +1,8 @@
+#!/bin/sh
+# Turn this unit's fallback address on or off, e.g. from a keyboard and
+# monitor when a wrong address setting has locked out the config page:
+#
+#   sudo spyder-bridge-fallback on|off|status
+#
+# Installed to /usr/local/sbin by install.sh.
+exec env PYTHONPATH=/opt/spyder-bridge/src python3 -m spyder_bridge.network "$@"

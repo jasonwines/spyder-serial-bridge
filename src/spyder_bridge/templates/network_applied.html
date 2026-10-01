@@ -31,6 +31,11 @@
         with a laptop cabled straight to the unit and set to an address in {{ fallback_net }}.
         This always works, even if the new settings are wrong.
       </li>
+      {% elif address_changed %}
+      <li>
+        The fallback address is off, so if the new settings are wrong, reach the unit
+        through its link-local address or a keyboard and monitor (<code>sudo spyder-bridge-fallback on</code>).
+      </li>
       {% endif %}
     </ul>
   </fieldset>
