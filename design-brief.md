@@ -38,7 +38,7 @@ network settings have been tested on real hardware. See [What's been tested](#wh
   S** (2026-09-28): a successful command replied with the bare result code
   `0`, no header and no trailing data. The bridge's synthesized timeout
   reply (`5` + CR) therefore matches the real format. Query commands that
-  return data haven't been checked yet.
+  return data also relay correctly (tested 2026-10-01).
 - Replies go back over serial with exactly one trailing CR (trailing CR, LF
   and NUL are normalised).
 
@@ -251,6 +251,9 @@ PuTTY, Spyder S at `192.168.55.77`), 2026-09-28:
 | Switching back to DHCP | Works; gets a lease again |
 | Update to the v1.0.0 release changes (2026-10-01) | Works; bridge and config page as before |
 | Unplug and replug the serial cable (2026-10-01) | Bridge recovers |
+| Unplug and replug the USB adapter (2026-10-01) | Bridge recovers |
+| Slow commands such as image loads, 500 ms timeout (2026-10-01) | Work; no timeouts |
+| Query commands that return data (2026-10-01) | Replies relayed correctly |
 | Every baud rate on the config page (2026-10-01) | All work |
 | Install from the v1.0.0 release tarball (2026-10-01) | Works; page shows `v1.0.0` |
 
@@ -259,12 +262,6 @@ fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
 `nmcli` checking the exact commands sent and parsing its output formats.
 
 ## Open items
-- **Timeout tuning**: check slow commands such as image loads against the
-  500 ms default.
-- **USB adapter replug**: the serial cable replug is tested; pulling the USB
-  adapter itself (the port disappears, systemd restarts the bridge every
-  5 s) is still to check, if that wasn't what was tested.
-- **Query commands** that return data: confirm the reply format.
 - **Late replies**: a reply arriving after its timeout but while the next
   command is in flight is taken as that command's answer; the protocol has no
   transaction ID. A longer timeout makes it less likely; a short quiet period
