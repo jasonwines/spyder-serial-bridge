@@ -252,6 +252,7 @@ PuTTY, Spyder S at `192.168.55.77`), 2026-09-28:
 | Update to the v1.0.0 release changes (2026-10-01) | Works; bridge and config page as before |
 | Unplug and replug the serial cable (2026-10-01) | Bridge recovers |
 | Every baud rate on the config page (2026-10-01) | All work |
+| Install from the v1.0.0 release tarball (2026-10-01) | Works; page shows `v1.0.0` |
 
 Automated: 160 pytest tests. They include full serial → bridge → UDP →
 fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
@@ -273,8 +274,6 @@ fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
 - **Read-only root**: `/etc/spyder-bridge` and `/etc/NetworkManager/` (network
   settings) must stay writable.
 - **SD image baking** (see Distribution).
-- **Release tarball install**: install from the v1.0.0 release tarball on a
-  unit with no internet access and confirm the page shows `v1.0.0`.
 
 ## Build order (all done)
 1. ~~Config loading (baud/port/timeout/IP), no hardware dependency.~~
