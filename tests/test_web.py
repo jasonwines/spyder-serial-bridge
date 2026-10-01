@@ -261,6 +261,24 @@ def test_description_on_login_and_main_page(anon):
     assert web.DESCRIPTION in anon.get("/").get_data(as_text=True)
 
 
+def test_version_shown_only_after_login(path, nmcli):
+    auth.set_password(auth.password_path(path), PASSWORD)
+    app = create_app(path, network=NmcliBackend(fallback=FALLBACK, runner=nmcli), version="v1.2.3")
+    anon = app.test_client()
+    assert "v1.2.3" not in anon.get("/login").get_data(as_text=True)
+    anon.post("/login", data={"password": PASSWORD})
+    assert "Version v1.2.3" in anon.get("/").get_data(as_text=True)
+
+
+def test_read_version(tmp_path):
+    f = tmp_path / "VERSION"
+    assert web.read_version(f) == "development"
+    f.write_text("v1.0.0\n")
+    assert web.read_version(f) == "v1.0.0"
+    f.write_text("")
+    assert web.read_version(f) == "unknown"
+
+
 @pytest.mark.parametrize(
     "host, spec",
     [("*", "*:80"), ("0.0.0.0", "0.0.0.0:80"), ("::", "[::]:80"), ("fe80::1", "[fe80::1]:80")],

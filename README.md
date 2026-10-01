@@ -11,7 +11,24 @@ sudo ./install.sh
 
 Then open `http://<pi-hostname>.local/` (the hostname set when flashing the SD card, e.g. `http://spyder-serial-bridge.local/`) and log in with the default password **`spyder`**. Change it on the config page before leaving site (new passwords need at least 8 characters); the page reminds you until you do. Set the serial port, baud rate, and Spyder IP; the bridge applies saved settings within a few seconds. The same page sets the unit's own name and address (DHCP or static) and its password.
 
-To update: `git pull && sudo ./install.sh`. Your config, password and network settings are kept.
+### Updating
+
+Updates are manual; a unit never checks for or installs one by itself. Your config, password and network settings are kept, and the config page shows the installed version.
+
+- **Unit with a git clone and internet access:** `git pull && sudo ./install.sh` in the clone.
+- **Unit with no internet access:** download `spyder-serial-bridge-<version>.tar.gz` from the [Releases page](https://github.com/jasonwines/spyder-serial-bridge/releases) on a laptop, copy it to the unit (e.g. `scp` to the fallback address), then on the unit:
+
+  ```sh
+  tar xzf spyder-serial-bridge-<version>.tar.gz
+  cd spyder-serial-bridge-<version>
+  sudo ./install.sh
+  ```
+
+  Check the download against the `.sha256` file next to it on the Releases page if it's been through a USB stick or email.
+
+If an update misbehaves, `sudo ./install.sh --rollback` puts the previous version's app code back (run it again to undo). Config, password and network settings aren't touched. If you saved a setting the older version doesn't know, its bridge won't load the config until you re-save from the config page.
+
+Site-specific builds live on `site/<name>` branches and are released as pre-releases tagged `vX.Y.Z-<name>.N`; mainline releases are the ones marked Latest.
 
 Forgotten the password? `sudo ./install.sh --reset-password` puts the default back.
 
@@ -74,3 +91,14 @@ Send one command straight to a Spyder (real or fake) over UDP:
 ```sh
 .venv/bin/python -m spyder_bridge.udp_client --host 192.168.0.100 RSC 1
 ```
+
+### Releasing
+
+Tag a commit on `main` and push the tag; the Release workflow runs the tests, builds `spyder-serial-bridge-<tag>.tar.gz` (with a `VERSION` file inside, which `install.sh` records and the config page shows) plus its `.sha256`, and publishes a GitHub Release:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+For a site-specific change, branch `site/<name>` from the release it builds on and tag it `vX.Y.Z-<name>.N` (e.g. `v1.0.0-acme.1`). Tags with a `-` are published as pre-releases so they never show up as Latest.

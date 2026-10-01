@@ -1,0 +1,41 @@
+name: Release
+
+# Push a tag to publish a release:  git tag v1.0.0 && git push origin v1.0.0
+# Mainline releases are tagged on main (vX.Y.Z). Site-specific builds are
+# tagged on their site/<name> branch as vX.Y.Z-<name>.N and published as
+# pre-releases, so GitHub's "latest" release is always mainline.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # Raspberry Pi OS Bookworm
+      - run: pip install -e '.[dev]'
+      - run: pytest -q
+      - name: Build tarball
+        run: |
+          name="spyder-serial-bridge-$GITHUB_REF_NAME"
+          # install.sh reads VERSION when there's no .git to describe.
+          echo "$GITHUB_REF_NAME" > VERSION
+          git archive --format=tar.gz --prefix="$name/" --add-file=VERSION \
+            -o "$name.tar.gz" HEAD
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          echo "NAME=$name" >> "$GITHUB_ENV"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          [[ $GITHUB_REF_NAME == *-* ]] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" "$NAME.tar.gz" "$NAME.tar.gz.sha256" \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag "${flags[@]}"

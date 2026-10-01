@@ -12,7 +12,7 @@
       <h1>Spyder Serial Bridge</h1>
       <p class="lede">{{ description }}</p>
       <p class="sub">
-        {% if status %}{{ status.settings.hostname }} · {% endif %}Config file: {{ config_path }}
+        {% if status %}{{ status.settings.hostname }} · {% endif %}Version {{ version }} · Config file: {{ config_path }}
       </p>
     </div>
     <form method="post" action="{{ url_for('logout') }}">

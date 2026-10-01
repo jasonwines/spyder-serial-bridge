@@ -22,6 +22,7 @@ import time
 from dataclasses import fields
 from datetime import timedelta
 from ipaddress import IPv4Interface
+from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 
@@ -67,6 +68,8 @@ _BOOL_FIELDS = {"udp_append_cr"}
 # the browser before the old address goes away.
 NETWORK_APPLY_DELAY_S = 2.0
 FAILED_LOGIN_DELAY_S = 1.0
+# Written by install.sh: the release tag, or git describe for a checkout.
+VERSION_FILE = Path("/opt/spyder-bridge/VERSION")
 SESSION_LIFETIME = timedelta(hours=12)
 
 Scheduler = Callable[[float, Callable[[], None]], None]
@@ -117,6 +120,14 @@ def parse_form(form: Mapping[str, str]) -> tuple[dict[str, Any], dict[str, str]]
     return values, errors
 
 
+def read_version(path: Path = VERSION_FILE) -> str:
+    """Installed version, or "development" when not installed by install.sh."""
+    try:
+        return path.read_text(encoding="utf-8").strip() or "unknown"
+    except FileNotFoundError:
+        return "development"
+
+
 def _network_form_values(settings: NetworkSettings) -> dict[str, str]:
     return {
         "hostname": settings.hostname,
@@ -132,6 +143,7 @@ def create_app(
     config_path: str | os.PathLike[str] | None = None,
     network: Any = None,
     schedule: Scheduler = _schedule_in_background,
+    version: str | None = None,
 ) -> Flask:
     """``network`` is an NmcliBackend or a stand-in with the same methods."""
     app = Flask(__name__)
@@ -142,6 +154,7 @@ def create_app(
         PERMANENT_SESSION_LIFETIME=SESSION_LIFETIME,
     )
     app.jinja_env.globals["description"] = DESCRIPTION
+    app.jinja_env.globals["version"] = version if version is not None else read_version()
     path = resolve_config_path(config_path)
     pw_path = auth.password_path(path)
     net = network if network is not None else NmcliBackend()
