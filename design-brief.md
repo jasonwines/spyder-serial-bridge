@@ -8,8 +8,9 @@ existing serial control programming.
 
 Repo: https://github.com/jasonwines/spyder-serial-bridge (public, MIT licensed)
 
-**Status (2026-09-28):** build steps 1–6 are done and merged to `main`, plus
-a password-protected config page with network settings. The whole path —
+**Status (2026-10-01):** v1.0.0. Build steps 1–6 are done and merged to
+`main`, plus a password-protected config page with network settings and
+manual updates from tagged releases. The whole path —
 control-system serial → Pi → UDP → Spyder S and back — and the config page's
 network settings have been tested on real hardware. See [What's been tested](#whats-been-tested) and
 [Open items](#open-items).
@@ -248,16 +249,20 @@ PuTTY, Spyder S at `192.168.55.77`), 2026-09-28:
 | Host name change from the config page | Works; found at the new `.local` name |
 | Update run (`sudo ./install.sh`) after those changes | Keeps the static address and password |
 | Switching back to DHCP | Works; gets a lease again |
+| Update to the v1.0.0 release changes (2026-10-01) | Works; bridge and config page as before |
+| Unplug and replug the serial cable (2026-10-01) | Bridge recovers |
+| Every baud rate on the config page (2026-10-01) | All work |
 
-Automated: 158 pytest tests. They include full serial → bridge → UDP →
+Automated: 160 pytest tests. They include full serial → bridge → UDP →
 fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
 `nmcli` checking the exact commands sent and parsing its output formats.
 
 ## Open items
 - **Timeout tuning**: check slow commands such as image loads against the
   500 ms default.
-- **USB replug**: unplug and replug the adapter; the bridge should recover
-  within a few seconds.
+- **USB adapter replug**: the serial cable replug is tested; pulling the USB
+  adapter itself (the port disappears, systemd restarts the bridge every
+  5 s) is still to check, if that wasn't what was tested.
 - **Query commands** that return data: confirm the reply format.
 - **Late replies**: a reply arriving after its timeout but while the next
   command is in flight is taken as that command's answer; the protocol has no
@@ -268,8 +273,8 @@ fake-Spyder runs over real pseudo-terminals and loopback UDP, and a fake
 - **Read-only root**: `/etc/spyder-bridge` and `/etc/NetworkManager/` (network
   settings) must stay writable.
 - **SD image baking** (see Distribution).
-- **v1.0.0**: test the release changes on hardware (version on the config
-  page, a tarball install, `--rollback`), then tag `v1.0.0` on `main`.
+- **Release tarball install**: install from the v1.0.0 release tarball on a
+  unit with no internet access and confirm the page shows `v1.0.0`.
 
 ## Build order (all done)
 1. ~~Config loading (baud/port/timeout/IP), no hardware dependency.~~
